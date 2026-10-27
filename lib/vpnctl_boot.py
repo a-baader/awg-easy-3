@@ -80,7 +80,7 @@ def configure(manager,enabled,config=None):
         manager.run(['systemctl','daemon-reload'])
         manager.run(['systemctl','enable','--now','vpn-easy-dual-update.timer'] if enabled else ['systemctl','disable','--now','vpn-easy-dual-update.timer'],check=enabled)
     elif kind=='openrc':
-        manager.run(['rc-update','add' if enabled else 'del','vpn-easy-dual-update','default'])
+        manager.run(['rc-update','add' if enabled else 'del','vpn-easy-dual-update','default'],check=enabled)
         manager.run(['rc-service','vpn-easy-dual-update','start' if enabled else 'stop'],check=enabled)
     return {'backend':kind,'enabled':enabled and kind!='unsupported'}
 

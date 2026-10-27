@@ -159,6 +159,14 @@ class Contract(unittest.TestCase):
             for path in vpnctl_boot.files(self.manager.system_root,'openrc'):
                 result=subprocess.run(['sh','-n',str(path)],capture_output=True,text=True)
                 self.assertEqual(result.returncode,0,result.stderr)
+            original=self.manager.run
+            def run(args,**kwargs):
+                if args[:2]==['rc-update','del']:
+                    self.assertFalse(kwargs.get('check',True))
+                    return None
+                return original(args,**kwargs)
+            self.manager.run=run
+            vpnctl_boot.configure(self.manager,False)
             vpnctl_boot.configure(self.manager,False)
         self.assertIn(['rc-update','add','vpn-easy-dual-update','default'],self.manager.calls)
         self.assertIn(['rc-service','vpn-easy-dual-update','stop'],self.manager.calls)
