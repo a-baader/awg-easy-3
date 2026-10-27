@@ -23,6 +23,7 @@ window.awgApi = (() => {
     login: (password) => request('/api/v1/session', json('POST', { password })),
     logout: () => request('/api/v1/session', json('DELETE')),
     clients: () => request('/api/v1/clients'),
+    capabilities: () => request('/api/v1/capabilities', { cache: 'no-store' }),
     network: () => request('/api/v1/network'),
     geoInfo: (signal) => request('/api/v1/geoip', { signal, cache: 'no-store' }),
     diagnostics: (signal) => request('/api/v1/diagnostics', { signal }),

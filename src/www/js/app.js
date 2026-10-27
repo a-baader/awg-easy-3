@@ -23,6 +23,29 @@
   let pendingDelete;
   let lastDiagnostics = [];
   let geoCountries = [];
+  let capabilities = { vpnUrl: false, nativeQr: false };
+  const profileQr = window.vpnProfileQr?.({ image: $('#profile-qr-image'), container: $('#profile-qr'),
+    fetchText: (id, format) => api.exportText(id, format), translate: t });
+  const loadCapabilities = async () => {
+    if (!api.capabilities) return;
+    capabilities = await api.capabilities();
+    const wireguard = capabilities.backend === 'wireguard';
+    const name = wireguard ? 'WG Easy Dual' : 'AWG-Easy 3';
+    document.title = name;
+    const heading = $('#product-name');
+    if (heading) heading.textContent = name;
+    for (const key of ['application-name', 'apple-mobile-web-app-title']) {
+      const meta = document.querySelector(`meta[name="${key}"]`);
+      if (meta) meta.content = name;
+    }
+    const tagline = $('#product-tagline');
+    if (tagline) { tagline.dataset.i18n = wireguard ? 'wgTagline' : 'tagline'; tagline.textContent = t(tagline.dataset.i18n); }
+    $('#show-profile-link')?.classList.toggle('hidden', !capabilities.vpnUrl);
+    $('#show-vpn-qr')?.classList.toggle('hidden', !capabilities.vpnUrl);
+    $('#show-native-qr')?.classList.toggle('hidden', !capabilities.nativeQr);
+    const note = $('#profile-note');
+    if (note) { note.dataset.i18n = wireguard ? 'wgProfileNote' : 'profileNote'; note.textContent = t(note.dataset.i18n); }
+  };
   const { paintRates, createPoller } = window.awgDiagnostics;
   const geoStatus = window.awgGeoStatus?.({ load: signal => api.geoInfo(signal), createPoller,
     node: $('#geo-status'), translate: t, onData: status => { geoCountries = status.countries || []; } });
@@ -40,6 +63,10 @@
     if (timeout) showNotice.timer = setTimeout(() => notice.classList.add('hidden'), timeout);
   };
   const showLogin = () => {
+    profileQr?.clear();
+    profileDialog.close();
+    $('#profile-link').value = '';
+    selectedClient = undefined;
     geoStatus?.stop();
     diagnosticsPoller.stop();
     lastDiagnostics = [];
@@ -194,6 +221,7 @@
     diagnosticsPoller.stop();
     clearDiagnostics('checking');
     clients = await guarded(() => api.clients());
+    try { await loadCapabilities(); } catch {}
     if (api.geoInfo) {
       try { geoCountries = (await api.geoInfo()).countries || []; } catch { geoCountries = []; }
     }
@@ -211,6 +239,7 @@
     } catch { $('#panel-ipv4').classList.add('hidden'); $('#panel-ipv6').classList.add('hidden'); }
   };
   const openProfile = (client) => {
+    profileQr?.clear();
     selectedClient = client;
     $('#profile-title').textContent = client.name;
     $('#download-config').href = api.exportUrl(client.id, 'native-config');
@@ -235,6 +264,7 @@
     localStorage.setItem('awg-easy-language', languageSelect.value);
     lastDiagnostics.forEach(paintDiagnostics);
     geoStatus?.translate();
+    profileQr?.updateLanguage();
   });
   $('#show-create').addEventListener('click', () => createDialog.showModal());
   document.querySelectorAll('.close-dialog').forEach((button) => button.addEventListener('click', () => button.closest('dialog').close()));
@@ -278,10 +308,20 @@
     }
   });
   $('#show-profile-link').addEventListener('click', async () => {
+    if (!capabilities.vpnUrl && api.capabilities) return;
     let link;
     try { link = await guarded(() => api.exportText(selectedClient.id, 'vpn-link')); } catch { return; }
     showManualLink(link);
   });
+  $('#show-native-qr')?.addEventListener('click', () => {
+    if (selectedClient && capabilities.nativeQr) guarded(() => profileQr.show(selectedClient.id, 'qr-native-svg')).catch(() => {});
+  });
+  $('#show-vpn-qr')?.addEventListener('click', () => {
+    if (selectedClient && capabilities.vpnUrl) guarded(() => profileQr.show(selectedClient.id, 'qr-svg')).catch(() => {});
+  });
+  profileDialog.addEventListener('close', () => profileQr?.clear());
+  window.addEventListener('pagehide', () => profileQr?.clear());
+  loadCapabilities().catch(() => {});
   $('#password-form').addEventListener('submit', async (event) => {
     event.preventDefault();
     try {

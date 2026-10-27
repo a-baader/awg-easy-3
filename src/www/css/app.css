@@ -16,3 +16,6 @@
 .geo-form{display:grid;gap:10px;margin-top:16px;padding-top:16px;border-top:1px solid #21374c}
 .geo-form label{display:grid;gap:6px;min-width:0}.geo-form input,.geo-form select{width:100%;min-width:0;box-sizing:border-box}
 .geo-form p{font-size:.8rem;line-height:1.5;color:#91a6bf;margin:0}.geo-form .geo-message{color:#f3ce88}
+
+.profile-qr { text-align: center; margin: 1rem 0; }
+.profile-qr img { width: min(100%, 512px); height: auto; background: white; border-radius: .5rem; }

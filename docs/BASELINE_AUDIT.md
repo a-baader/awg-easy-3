@@ -122,3 +122,11 @@ healthcheck. Версия amneziawg-go --version содержит старый s
 это не показатель поколения протокола. AWG tools проверены на наличие полей
 header protection, content padding, random trailers и disable cookies; точный
 Go commit берётся из сборки. Полный Dual firewall/полевой Windows ещё не проверен.
+
+## Этап 3
+
+Общий UI получил capabilities и native QR. WG не показывает vpn://; AWG
+сохраняет прежнюю ссылку и QR. Добавлены переводы пяти языков, корректные
+WireGuard branding/manifest и числовой keepalive в диагностике. Контракты
+Home/Guest, IPv4/IPv6 и GeoIP сохраняют общий сервисный слой; совместная
+сетевая изоляция и fan-out двух контейнеров проверяются на этапе 4/7.

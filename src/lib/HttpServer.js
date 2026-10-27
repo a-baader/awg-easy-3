@@ -88,6 +88,9 @@ class HttpServer {
   async apiRequest(request, response, url) {
     securityHeaders(response, { api: true });
     const token = sessionToken(request);
+    if (url.pathname === '/api/v1/capabilities' && request.method === 'GET') {
+      return sendJson(response, 200, await this.api.capabilities());
+    }
     const mutation = !['GET', 'HEAD'].includes(request.method);
     if (mutation) assertSameSite(request);
 
@@ -177,6 +180,15 @@ class HttpServer {
     } catch (error) {
       if (error.code === 'ENOENT' || error.code === 'EISDIR') throw new ApiError(404, 'Not found');
       throw error;
+    }
+    if (relative === 'manifest.json' && this.api.capabilities) {
+      const capabilities = await this.api.capabilities();
+      if (capabilities.backend === 'wireguard') {
+        const manifest = JSON.parse(body.toString('utf8'));
+        Object.assign(manifest, { name: 'WG Easy Dual', short_name: 'WG Easy Dual',
+          description: 'Панель стандартного WireGuard. Подключите Home VPN перед открытием.' });
+        body = Buffer.from(JSON.stringify(manifest));
+      }
     }
     response.statusCode = 200;
     response.setHeader('Content-Type', relative === 'manifest.json'

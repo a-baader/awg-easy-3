@@ -102,7 +102,7 @@ class ClientDiagnostics {
         lastHandshakeAt: peer?.lastHandshake ? new Date(peer.lastHandshake * 1000).toISOString() : null,
         endpoint: peer?.endpoint ?? null,
         mtu: client.mtu ?? 1280,
-        persistentKeepalive: client.persistentKeepalive ?? '25-35',
+        persistentKeepalive: client.persistentKeepalive ?? (this.binary === 'wg' ? '25' : '25-35'),
       });
     });
     this.previous = nextPrevious;

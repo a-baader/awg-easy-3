@@ -9,6 +9,8 @@ const { buildAwgArtifacts } = require('../lib/AwgArtifacts');
 const { validateState } = require('../lib/StateStore');
 const { ClientManager } = require('../lib/ClientManager');
 const { ApiService } = require('../lib/ApiService');
+const { HttpServer } = require('../lib/HttpServer');
+const path = require('node:path');
 const key = n => Buffer.alloc(32, n).toString('base64');
 
 async function fixture() {
@@ -57,6 +59,7 @@ test('WG lifecycle использует общий ClientManager, экспорт
     qrGenerator: async text => 'QR:' + text });
   await assert.rejects(service.exportClient('no', 'phone', 'native-config'), e => e.statusCode === 401);
   const native = await service.exportClient('ok', 'phone', 'native-config');
+  assert.equal((await service.capabilities()).backend, 'wireguard');
   assert.equal((await service.exportClient('ok', 'phone', 'qr-native-svg')).value, 'QR:' + native.value);
   assert.equal((await service.exportClient('ok', 'phone', 'qr-svg')).value, 'QR:' + native.value);
   await assert.rejects(service.exportClient('ok', 'phone', 'vpn-link'), e => e.statusCode === 400);
@@ -91,4 +94,19 @@ test('WG tools проверяются по происхождению, а не �
   await assert.rejects(createBackend('wireguard', { runner: async () => ({ stdout: 'amneziawg-tools v3.1' }) }).validateEnvironment(), /несовместимые/);
   const caps = await createBackend('wireguard', { runner: async (file) => ({ stdout: file === 'wg' ? 'wireguard-tools v1.0.20250521' : 'wireguard-go 0.0.20250522' }) }).validateEnvironment();
   assert.equal(caps.vpnUrl, false); assert.equal(caps.nativeQr, true);
+});
+
+test('WG HTTP metadata идентифицирует свою панель, экспорт без сессии закрыт', async t => {
+  const f = await fixture();
+  const service = new ApiService({ store: f.store, clientManager: { createClient() {} },
+    passwordManager: { verify() {}, changePassword() {} }, sessionManager: { create() {}, verify: async () => false } });
+  const server = new HttpServer({ api: service, publicDirectory: path.join(__dirname, '../www') });
+  const address = await server.listen({ host: '127.0.0.1', port: 0 });
+  t.after(() => server.close());
+  const root = `http://127.0.0.1:${address.port}`;
+  const caps = await (await fetch(root + '/api/v1/capabilities')).json();
+  assert.equal(caps.backend, 'wireguard'); assert.equal(caps.vpnUrl, false);
+  assert.equal((await (await fetch(root + '/manifest.json')).json()).name, 'WG Easy Dual');
+  const response = await fetch(root + '/api/v1/clients/home-admin/export?format=native-config');
+  assert.equal(response.status, 401);
 });

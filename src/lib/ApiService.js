@@ -1,6 +1,7 @@
 'use strict';
 
 const { clientTraffic } = require('./ClientTraffic');
+const { createBackend, backendKind } = require('./VpnBackend');
 
 class ApiError extends Error {
   constructor(statusCode, message) {
@@ -102,6 +103,12 @@ class ApiService {
       panelIpv4Url: `http://${address4}:${panelPort}/`,
       panelIpv6Url: address6 && ipv6Subnet ? `http://[${address6}]:${panelPort}/` : null,
     });
+  }
+
+  async capabilities() {
+    const state = await this.store.load();
+    if (!state) throw new ApiError(503, 'VPN ещё не настроен');
+    return createBackend(backendKind(state.server)).capabilities();
   }
 
   async geoInfo(token) {

@@ -3,6 +3,14 @@
 window.awgI18n = (() => {
   const messages = {
     en: {
+      wgTagline: "Simple panel for standard WireGuard",
+      wgProfileNote: "Import the .conf file or scan its QR code in the WireGuard app.",
+      qrNative: "QR .conf",
+      qrVpn: "QR vpn://",
+      qrNativeAlt: "WireGuard configuration QR",
+      qrVpnAlt: "AmneziaVPN profile QR",
+      qrError: "Could not load the QR code.",
+
       geoPolicyTitle: "Country filter",
       geoOff: "No filter",
       geoBlock: "Block selected countries",
@@ -52,6 +60,14 @@ window.awgI18n = (() => {
       diagnosticsHint: 'Recent connection means a handshake within 150 seconds, not guaranteed current connectivity. Rates are interval averages in bits/s: ↓ sent to the client, ↑ received from the client. Server counters can include service traffic; sending does not confirm delivery.',
     },
     ru: {
+      wgTagline: "Простая панель стандартного WireGuard",
+      wgProfileNote: "Импортируйте .conf или отсканируйте его QR в приложении WireGuard.",
+      qrNative: "QR .conf",
+      qrVpn: "QR vpn://",
+      qrNativeAlt: "QR конфигурации WireGuard",
+      qrVpnAlt: "QR профиля AmneziaVPN",
+      qrError: "Не удалось загрузить QR-код.",
+
       geoPolicyTitle: "Фильтр по странам",
       geoOff: "Без фильтрации",
       geoBlock: "Блокировать выбранные страны",
@@ -101,6 +117,14 @@ window.awgI18n = (() => {
       diagnosticsHint: 'Недавняя связь — handshake за последние 150 секунд, а не гарантия текущего подключения. Скорость — средняя за интервал, в бит/с: ↓ отправлено клиенту, ↑ получено от него. Счётчики сервера могут включать служебный трафик; отправка не подтверждает доставку.',
     },
     es: {
+      wgTagline: "Panel sencillo para WireGuard estándar",
+      wgProfileNote: "Importa el archivo .conf o escanea su QR en la aplicación WireGuard.",
+      qrNative: "QR .conf",
+      qrVpn: "QR vpn://",
+      qrNativeAlt: "QR de configuración WireGuard",
+      qrVpnAlt: "QR de perfil AmneziaVPN",
+      qrError: "No se pudo cargar el código QR.",
+
       geoPolicyTitle: "Filtro por países",
       geoOff: "Sin filtro",
       geoBlock: "Bloquear países seleccionados",
@@ -149,6 +173,14 @@ window.awgI18n = (() => {
       diagnosticsHint: 'Conexión reciente indica un handshake en los últimos 150 segundos, no garantiza conexión actual. Las velocidades son promedios del intervalo en bits/s: ↓ enviado al cliente, ↑ recibido del cliente. Los contadores pueden incluir tráfico de control; enviar no confirma la entrega.',
     },
     'zh-cn': {
+      wgTagline: "标准 WireGuard 的简洁面板",
+      wgProfileNote: "在 WireGuard 应用中导入 .conf 文件或扫描其二维码。",
+      qrNative: "QR .conf",
+      qrVpn: "QR vpn://",
+      qrNativeAlt: "WireGuard 配置二维码",
+      qrVpnAlt: "AmneziaVPN 配置二维码",
+      qrError: "无法加载二维码。",
+
       geoPolicyTitle: "国家过滤",
       geoOff: "不过滤",
       geoBlock: "屏蔽所选国家",
@@ -197,6 +229,14 @@ window.awgI18n = (() => {
       diagnosticsHint: '近期连接表示过去 150 秒内有握手，不保证设备当前在线。速率为采样间隔内的平均值，单位为比特/秒：↓ 发送至客户端，↑ 从客户端接收。服务器计数可能包含控制流量；发送不代表已送达。',
     },
     fa: {
+      wgTagline: "پنل ساده برای WireGuard استاندارد",
+      wgProfileNote: "فایل .conf را وارد کنید یا کد QR آن را در برنامه WireGuard اسکن کنید.",
+      qrNative: "QR .conf",
+      qrVpn: "QR vpn://",
+      qrNativeAlt: "کد QR پیکربندی WireGuard",
+      qrVpnAlt: "کد QR پروفایل AmneziaVPN",
+      qrError: "بارگیری کد QR ناموفق بود.",
+
       geoPolicyTitle: "فیلتر کشورها",
       geoOff: "بدون فیلتر",
       geoBlock: "مسدود کردن کشورهای انتخاب‌شده",

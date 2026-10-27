@@ -53,7 +53,7 @@ test('ships a self-contained UI with every required control', () => {
   assert.ok(fs.existsSync(path.join(www, 'img', 'favicon.svg')));
   assert.ok(fs.existsSync(path.join(www, 'img', 'favicon.ico')));
   assert.ok(fs.existsSync(path.join(www, 'img', 'apple-touch-icon.png')));
-  assert.doesNotMatch(html, /backup|restore|expire|wireguard/i);
+  assert.doesNotMatch(html, /backup|restore|expire/i);
   assert.match(html, /Home/);
   assert.match(html, /Guest/);
   assert.doesNotMatch(html, /РФ напрямую/);
