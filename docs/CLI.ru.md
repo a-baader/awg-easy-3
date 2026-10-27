@@ -4,11 +4,16 @@ Host CLI использует Python 3 standard library, Docker CLI и Compose v
 Третьего постоянного управляющего контейнера нет. После установки команда
 доступна как /usr/local/sbin/vpnctl из любого каталога. Исходники остаются в
 каталоге установки; не перемещайте его. --config PATH передаётся перед командой.
-Все операции, кроме help, требуют root. Без аргументов открывается меню.
+Все операции, кроме help, требуют root. Без аргументов открывается меню; при отсутствии установки запускается установщик.
 
 ```sh
 vpnctl help
-vpnctl install --build --host vpn.example.org --lang ru
+vpnctl install --host vpn.example.org --lang ru
+vpnctl reinstall wg --host vpn.example.org --lang ru
+vpnctl auto-update status
+vpnctl auto-update disable
+vpnctl auto-update enable
+vpnctl auto-update run
 vpnctl status all --json
 vpnctl start all
 vpnctl stop wg
@@ -34,7 +39,7 @@ vpnctl recover --yes
 ```
 
 Компонент по умолчанию all у lifecycle/status/settings/logs/diagnose/backup/update/
-uninstall. Restore требует --component; пароль и изменение/экспорт клиента
+uninstall/reinstall. Restore требует --component; пароль и изменение/экспорт клиента
 требуют одного конкретного backend. Для WG формат vpn-url возвращает ошибку.
 Существующий файл экспорта не перезаписывается. Вывод профиля в stdout
 разрешён только явно вызванной командой export без --output; журналы его не содержат.
@@ -46,7 +51,7 @@ Reset создаёт новый случайный пароль и показы�
 Последнего активного Home-клиента отключать или удалять нельзя.
 
 --yes заменяет интерактивное подтверждение потенциальной остановки/замены данных.
-Без терминала подтверждение обязательно. Install/update/restore/uninstall
+Без терминала подтверждение обязательно. Install/reinstall/update/restore/uninstall
 поддерживают --dry-run. Перед control RPC подтверждаются image/mount/network/label контейнера.
 Команды изменений сериализуются общей блокировкой,
 совместимой с legacy updater. При transaction.json сначала нужен recover.
@@ -81,5 +86,7 @@ endpoint и прервёт его трафик. Одноразовый конт�
 с конфигурацией. Журналы очищаются от ключей, bcrypt, паролей, сессий и vpn://.
 
 Совместимый awg-easy-3 делегирует AWG-команды установленному Dual manager.
-Legacy auto-update заменён сообщением о ручном общем update; второй независимый
-updater не создаётся. Отдельного публичного релиза Dual пока нет.
+Legacy auto-update передаётся в единый `vpnctl auto-update`; независимого
+updater второго backend нет. `reinstall` передаётся для AWG с сохранением WG.
+При удалении последнего компонента установленный `vpnctl` удаляется; исходники
+и внутренние backup остаются. Подробности — в INSTALL_DUAL.ru.md.

@@ -7,6 +7,7 @@ has() { command -v "$1" >/dev/null 2>&1; }
 [ "$(uname -s)" = Linux ] || fail 'требуется нативный Linux'
 case "$(uname -m)" in x86_64|amd64) ;; *) fail 'поддерживается Linux/amd64' ;; esac
 case "$(uname -r)" in *[Mm]icrosoft*|*[Ww][Ss][Ll]*) fail 'WSL не поддерживается' ;; esac
+if grep -qiE '(microsoft|wsl)' /proc/sys/kernel/osrelease /proc/version 2>/dev/null; then fail 'WSL не поддерживается'; fi
 need_docker=0; need_compose=0; need_iproute=0; need_nft=0; need_python=0
 has docker || need_docker=1
 has python3 || need_python=1
@@ -30,8 +31,7 @@ if [ "$need_docker$need_compose$need_iproute$need_nft$need_python" != 00000 ]; t
 NIX
     exit 69
   fi
-  if [ "${1:-}" != --yes ]; then
-    [ -t 0 ] && [ -t 1 ] || fail 'для установки зависимостей без терминала укажите --yes'
+  if [ "${1:-}" != --yes ] && [ -t 0 ]; then
     printf 'Установить недостающие Docker, Compose v2, iproute2, nftables и Python 3? [Y/n]: '
     read -r answer
     case "$answer" in n|N|no|нет|Нет) fail 'установка зависимостей отменена' ;; esac

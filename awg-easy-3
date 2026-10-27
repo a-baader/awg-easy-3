@@ -15,8 +15,8 @@ if [ -r /etc/vpn-easy-dual/config.json ] && command -v vpnctl >/dev/null 2>&1; t
     reset-password)
       [ "$#" -eq 1 ] || die 'передавайте пароль через vpnctl reset-password --component awg --password-stdin'
       exec vpnctl reset-password --component awg ;;
-    auto-update) die 'Dual использует единое ручное обновление vpnctl; legacy updater отключён' ;;
-    reinstall|--reinstall) die 'для чистой переустановки используйте vpnctl uninstall awg, затем установку после проверки backup' ;;
+    auto-update) shift; exec vpnctl auto-update "$@" ;;
+    reinstall|--reinstall) shift; exec vpnctl reinstall awg "$@" ;;
     help|-h|--help) exec vpnctl help ;;
     *) die 'неизвестная команда AWG; используйте vpnctl help' ;;
   esac

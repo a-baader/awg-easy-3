@@ -66,7 +66,11 @@ def execute(args):
 def environment_check(run=execute):
     if platform.system() != 'Linux' or platform.machine() not in ('x86_64', 'amd64'):
         raise PreflightError('Требуется нативный Linux/amd64')
-    if 'microsoft' in platform.release().lower():
+    signatures=platform.release().lower()
+    for filename in ('/proc/sys/kernel/osrelease','/proc/version'):
+        try:signatures+=' '+Path(filename).read_text().lower()
+        except OSError:pass
+    if 'microsoft' in signatures or 'wsl' in signatures:
         raise PreflightError('WSL не поддерживается')
     tun = Path('/dev/net/tun')
     if not tun.exists() or not stat.S_ISCHR(tun.stat().st_mode):
@@ -147,7 +151,7 @@ def inspect_conflicts(instances, *, owned=None, run=execute):
                 if own_network.overlaps(other):
                     raise PreflightError('VPN-подсеть пересекается с маршрутом: ' + subnet)
         for protocol, port in [('udp', item['udp_port']), ('tcp', item['panel_port'])]:
-            flags = '-Hlun' if protocol == 'udp' else '-Hltn'
+            flags = '-Huan' if protocol == 'udp' else '-Hltn'
             occupied = run(['ss', flags, 'sport = :' + str(port)]).strip()
             owns_port=proof and proof.get('udp_port' if protocol=='udp' else 'panel_port')==port
             if occupied and not owns_port:

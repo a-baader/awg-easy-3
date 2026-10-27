@@ -1,3 +1,4 @@
+// Проверки сохранённого оригинального установщика 0.1.6 как эталона миграции.
 'use strict';
 
 const assert = require('node:assert/strict');
@@ -40,7 +41,7 @@ test('installs only the minimal Node runtime dependency set', () => {
 });
 
 test('installer initializes before startup and never publishes the panel port', () => {
-  const installer = fs.readFileSync(path.join(root, 'install.sh'), 'utf8');
+  const installer = fs.readFileSync(path.join(root, 'scripts', 'fixtures', 'original-install-0.1.6.sh'), 'utf8');
   const cli = fs.readFileSync(path.join(root, 'src', 'cli.js'), 'utf8');
   assert.match(installer, /x86_64\|amd64/);
   assert.match(installer, /docker compose run[\s\S]*awg-easy init/);
@@ -56,7 +57,7 @@ test('installer initializes before startup and never publishes the panel port', 
 });
 
 test('installer rejects network conflicts before changing host settings', () => {
-  const installer = fs.readFileSync(path.join(root, 'install.sh'), 'utf8');
+  const installer = fs.readFileSync(path.join(root, 'scripts', 'fixtures', 'original-install-0.1.6.sh'), 'utf8');
   const forwarding = installer.indexOf('Enabling IPv4/IPv6 forwarding');
   for (const preflight of [
     'ip link show dev awg0',
@@ -72,13 +73,13 @@ test('installer rejects network conflicts before changing host settings', () => 
 });
 
 test('installer applies only its own sysctl file using BusyBox-compatible options', () => {
-  const installer = fs.readFileSync(path.join(root, 'install.sh'), 'utf8');
+  const installer = fs.readFileSync(path.join(root, 'scripts', 'fixtures', 'original-install-0.1.6.sh'), 'utf8');
   assert.match(installer, /^sysctl -p \/etc\/sysctl\.d\/99-awg-easy-3\.conf >\/dev\/null$/m);
   assert.doesNotMatch(installer, /^sysctl --system/m);
 });
 
 test('installer persists TUN for the next boot and removes only its owned module config', () => {
-  const installer = fs.readFileSync(path.join(root, 'install.sh'), 'utf8');
+  const installer = fs.readFileSync(path.join(root, 'scripts', 'fixtures', 'original-install-0.1.6.sh'), 'utf8');
   assert.match(installer, /install -d -m 0755 \/etc\/modules-load\.d/);
   assert.ok(installer.includes("printf 'tun\\n' > /etc/modules-load.d/awg-easy-3.conf"));
   assert.match(installer, /chmod 0644 \/etc\/modules-load\.d\/awg-easy-3\.conf/);
@@ -87,7 +88,7 @@ test('installer persists TUN for the next boot and removes only its owned module
 });
 
 test('installer can provision missing runtime dependencies without replacing foreign state', () => {
-  const installer = fs.readFileSync(path.join(root, 'install.sh'), 'utf8');
+  const installer = fs.readFileSync(path.join(root, 'scripts', 'fixtures', 'original-install-0.1.6.sh'), 'utf8');
   assert.match(installer, /detect_package_manager/);
   assert.match(installer, /apt-get dnf yum zypper pacman apk/);
   assert.match(installer, /docker-compose-v2/);
@@ -106,7 +107,7 @@ test('installer can provision missing runtime dependencies without replacing for
 });
 
 test('installer suggests ports interactively but keeps explicit options strict', () => {
-  const installer = fs.readFileSync(path.join(root, 'install.sh'), 'utf8');
+  const installer = fs.readFileSync(path.join(root, 'scripts', 'fixtures', 'original-install-0.1.6.sh'), 'utf8');
   assert.match(installer, /AWG_PORT_EXPLICIT/);
   assert.match(installer, /AWG_PANEL_PORT_EXPLICIT/);
   assert.match(installer, /next_free_port/);
@@ -116,7 +117,7 @@ test('installer suggests ports interactively but keeps explicit options strict',
 });
 
 test('installer offers owned uninstall and clean reinstall without touching foreign infrastructure', () => {
-  const installer = fs.readFileSync(path.join(root, 'install.sh'), 'utf8');
+  const installer = fs.readFileSync(path.join(root, 'scripts', 'fixtures', 'original-install-0.1.6.sh'), 'utf8');
   const manager = fs.readFileSync(path.join(root, 'awg-easy-3'), 'utf8');
   assert.match(installer, /--uninstall/);
   assert.match(installer, /--reinstall/);
@@ -156,7 +157,7 @@ test('installer offers owned uninstall and clean reinstall without touching fore
 });
 
 test('installer accepts validated AWG port, panel port and language options', () => {
-  const installer = fs.readFileSync(path.join(root, 'install.sh'), 'utf8');
+  const installer = fs.readFileSync(path.join(root, 'scripts', 'fixtures', 'original-install-0.1.6.sh'), 'utf8');
   assert.match(installer, /--port/);
   assert.match(installer, /--panel-port/);
   assert.match(installer, /--lang/);
@@ -165,7 +166,7 @@ test('installer accepts validated AWG port, panel port and language options', ()
 });
 
 test('installer rejects non-Linux kernels and WSL before provisioning packages', () => {
-  const installer = fs.readFileSync(path.join(root, 'install.sh'), 'utf8');
+  const installer = fs.readFileSync(path.join(root, 'scripts', 'fixtures', 'original-install-0.1.6.sh'), 'utf8');
   const dependencyProvisioning = installer.indexOf('install_runtime_dependencies');
   for (const platformCheck of [
     'FreeBSD|OpenBSD|NetBSD|Darwin',

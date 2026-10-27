@@ -1,0 +1,9 @@
+{
+  "version": "0.2.0-rc.1",
+  "images": {
+    "awg": "ghcr.io/a-baader/awg-easy-3-awg@sha256:f3a122ff56b0405e165f90a83c1a242bd076a8aaf9a4878b8eba99a4258a800d",
+    "wg": "ghcr.io/a-baader/awg-easy-3-wg@sha256:e180943c96d7c747e615222418a62ae2099ce6425567d4374e3ad52b2cda2431"
+  },
+  "source_commit": "b478b775677dc0ace9d04a1a791871dea0bcd028",
+  "platform": "linux/amd64"
+}

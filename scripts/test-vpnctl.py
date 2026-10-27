@@ -62,7 +62,7 @@ class Checks(unittest.TestCase):
         result=self.manager.plan_install(args)
         self.assertNotIn(result['components']['awg']['udp_port'],[51820,51824])
         self.assertEqual(result['components']['wg']['panel_port'],51825)
-        self.assertFalse(result['auto_check'])
+        self.assertTrue(result['auto_check'])
         self.manager.busy.add(('udp',39517));args.awg_port=39517
         with self.assertRaisesRegex(ManagerError,'Явно'):self.manager.plan_install(args)
         args.awg_port=0
@@ -275,12 +275,12 @@ class Checks(unittest.TestCase):
         args=build_parser().parse_args(['install'])
         result=self.manager.install(args)
         self.assertTrue(result['unchanged']);self.assertFalse(self.manager.calls)
-    def test_cli_idempotent_install_does_not_run_legacy_detection(self):
+    def test_cli_existing_install_requires_explicit_action_without_legacy_detection(self):
         self.manager.write_config(config(self.root));output=io.StringIO()
         with mock.patch('vpnctl_manager.Manager',return_value=self.manager),mock.patch('vpnctl_manager.os.geteuid',return_value=0),mock.patch.object(self.manager,'legacy',side_effect=AssertionError('Legacy не должен проверяться')):
             with mock.patch('vpnctl_manager.global_lock',return_value=global_lock(self.root/'lock',self.root/'legacy-lock')),mock.patch('sys.stdout',output):
-                self.assertEqual(main(PROJECT,['install','--yes','--json']),0)
-        self.assertTrue(json.loads(output.getvalue())['unchanged'])
+                self.assertEqual(main(PROJECT,['install','--yes','--json']),64)
+        self.assertEqual(output.getvalue(),'')
         self.assertFalse(self.manager.calls)
     def test_bootstrap_does_not_persist_panel_password(self):
         cfg=config(self.root)

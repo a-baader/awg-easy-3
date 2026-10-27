@@ -21,6 +21,7 @@ import uuid
 from dual_preflight import PreflightError, environment_check, inspect_conflicts, validate_instances
 from vpnctl_common import ManagerError, atomic_json, atomic_write, execute, global_lock, redact, durable_replace
 from vpnctl_backup import create_archive, verify_archive, extract_component
+import vpnctl_boot
 
 class Parser(argparse.ArgumentParser):
     def __init__(self,*args,**kwargs):
@@ -227,6 +228,8 @@ class Manager:
 
     def finish_committed(self,journal):
         self.verify_transaction_containers(journal)
+        if journal['operation']=='uninstall':
+            return self.finish_uninstall(journal)
         candidate=copy.deepcopy(journal['candidate']);candidate.pop('maintenance_components',None)
         self.write_config(candidate)
         for name in journal['selected']:
@@ -251,6 +254,13 @@ class Manager:
         self.verify_transaction_containers(journal)
         previous=journal['previous']
         self.restore_manager_files(journal)
+        if journal['operation']=='reinstall':
+            for name in journal['selected']:
+                for suffix in ['.conf','.vpn-url']:
+                    filename=name+suffix;path=self.root/'bootstrap'/filename
+                    value=journal.get('bootstrap_before',{}).get(filename)
+                    if value is None:path.unlink(missing_ok=True)
+                    else:atomic_write(path,base64.b64decode(value,validate=True))
         if journal['operation']=='install' and previous.get('legacy_origin'):
             item=previous['components']['awg'];info=self.inspect_container(item['container'])
             if info and info.get('Image')!=item['image']:
@@ -349,9 +359,9 @@ class Manager:
         return {'item':item,'directory':directory,'running':info['State'].get('Running',False)}
 
     def plan_install(self,args):
-        existing=self.config(False)
+        existing=getattr(self,'planning_existing',self.config(False))
         if existing and set(existing['components'])=={'awg','wg'}: return existing
-        legacy=None if existing else self.legacy()
+        legacy=None if existing or getattr(self,'reinstall_previous',None) else self.legacy()
         self.reserved_ports=set()
         self.interactive=sys.stdin.isatty() and not args.yes
         if legacy:
@@ -376,6 +386,7 @@ class Manager:
         data_root=Path(args.data_root or self.project).resolve()
         components={}
         for name,n,backend,table,container,panel in [('awg',8,'amneziawg','awg_easy_3','awg-easy-3',51821 if args.awg_panel_port is None else args.awg_panel_port),('wg',9,'wireguard','wg_easy_3','wg-easy-dual',51825 if args.wg_panel_port is None else args.wg_panel_port)]:
+            if hasattr(self,'planning_targets') and name not in self.planning_targets and name not in (existing or {}).get('components',{}):continue
             if existing and name in existing['components']:
                 components[name]=copy.deepcopy(existing['components'][name]);continue
             if name=='awg' and legacy:
@@ -410,7 +421,7 @@ class Manager:
                 token=secrets.token_hex(5); prefix='fd'+token[:2]+':'+token[2:6]+':'+token[6:]
                 item.update({'network6':prefix+'::/64','address6':prefix+'::1','ipv6_mode':'nat66'})
         config={**(existing or {}),'config_version':1,'version':(self.project/'VERSION').read_text().strip(),'project':str(self.project),
-            'language':args.lang or (existing or {}).get('language','en'),'auto_check':(existing or {}).get('auto_check',False),'components':components}
+            'language':args.lang or (existing or {}).get('language','en'),'auto_check':(existing or {}).get('auto_check',True),'components':components}
         if legacy: config['legacy_origin']=legacy
         validate_instances(components)
         for item in components.values():
@@ -421,7 +432,9 @@ class Manager:
 
     def port_used(self,protocol,port):
         if (protocol,port) in getattr(self,'reserved_ports',set()): return True
-        if self.run(['ss','-Hlun' if protocol=='udp' else '-Hltn','sport = :'+str(port)]).strip(): return True
+        key='udp_port' if protocol=='udp' else 'panel_port'
+        own_port=any(item[key]==port for item in getattr(self,'reinstall_previous',{}).get('components',{}).values())
+        if self.run(['ss','-Huan' if protocol=='udp' else '-Hltn','sport = :'+str(port)]).strip() and not own_port: return True
         identifiers=self.run(['docker','ps','-q']).split()
         for identifier in identifiers:
             raw=self.run(['docker','inspect','--format','{{json .NetworkSettings.Ports}}',identifier],check=False)
@@ -435,13 +448,18 @@ class Manager:
     def choose_port(self,protocol,port,explicit):
         if type(port) is not int or not 1<=port<=65535: raise ManagerError('Порт должен быть от 1 до 65535',64)
         if not self.port_used(protocol,port): return port
-        if explicit: raise ManagerError('Явно заданный порт занят: '+str(port)+'/'+protocol,73)
-        suggestion=next((candidate for candidate in range(port+1,65536) if not self.port_used(protocol,candidate)),None)
+        candidates=range(port+1,65536)
+        suggestion=next((candidate for candidate in candidates if not self.port_used(protocol,candidate)),None)
+        if suggestion is None:suggestion=next((candidate for candidate in range(1024,port) if not self.port_used(protocol,candidate)),None)
         if not suggestion: raise ManagerError('Не найден свободный порт',73)
+        if explicit: raise ManagerError('Явно заданный порт занят: '+str(port)+'/'+protocol+'; укажите свободный порт, например '+str(suggestion),73)
         if not getattr(self,'interactive',sys.stdin.isatty()): raise ManagerError('Порт по умолчанию занят; явно укажите свободный порт, например '+str(suggestion),73)
-        answer=input('Порт '+str(port)+'/'+protocol+' занят. Другой порт ['+str(suggestion)+']: ').strip()
-        if answer and not answer.isdecimal(): raise ManagerError('Некорректный порт',64)
-        return self.choose_port(protocol,int(answer) if answer else suggestion,True)
+        while True:
+            try:answer=input('Порт '+str(port)+'/'+protocol+' занят. Другой порт ['+str(suggestion)+']: ').strip()
+            except EOFError:raise ManagerError('Выбор порта отменён',64) from None
+            value=int(answer) if answer.isdecimal() else suggestion if not answer else 0
+            if 1<=value<=65535 and not self.port_used(protocol,value):return value
+            print('Ошибка: укажите свободный порт от 1 до 65535',file=sys.stderr)
 
     def validate_state_image(self,item,directory=None):
         source=directory or item['data_directory']
@@ -477,7 +495,17 @@ class Manager:
             self.system_root/'etc/vpn-easy-dual-install-dir':(str(self.project)+'\n',0o644),
             self.system_root/'usr/local/sbin/vpnctl':((self.project/'vpnctl').read_bytes(),0o755),
             self.system_root/'usr/local/sbin/awg-easy-3':((self.project/'awg-easy-3').read_bytes(),0o755),
+            **vpnctl_boot.files(self.system_root,vpnctl_boot.backend(self.system_root)),
         }
+
+    def sync_boot_hook(self):
+        try:
+            result=vpnctl_boot.configure(self,self.config().get('auto_check',False))
+            if result['backend']=='unsupported':print('Предупреждение: systemd/OpenRC недоступен; автоматическая проверка после загрузки не включена',file=sys.stderr)
+            return result
+        except (ManagerError,OSError):
+            print('Предупреждение: VPN установлен, но boot updater не настроен; выполните vpnctl auto-update enable',file=sys.stderr)
+            return {'enabled':False,'configuration_required':True}
 
     def register(self,config):
         records={}
@@ -515,7 +543,7 @@ class Manager:
     def check_system_paths(self,existing=None,legacy=None):
         records=(existing or {}).get('manager_files',{})
         for filename in self.system_files():
-            if not filename.exists():continue
+            if not filename.exists() and not filename.is_symlink():continue
             digest=hashlib.sha256(filename.read_bytes()).hexdigest() if filename.is_file() and not filename.is_symlink() else None
             if digest and records.get(str(filename))==digest:continue
             original=Path(legacy['directory'])/'awg-easy-3' if legacy else None
@@ -561,7 +589,8 @@ class Manager:
             self.register(plan)
             journal['candidate']=copy.deepcopy(plan)
             self.commit_transaction(journal)
-            return {'installed':True,'components':list(plan['components']),'bootstrap_directory':str(self.root/'bootstrap'),'automatic_updates':False}
+            hook=self.sync_boot_hook()
+            return {'installed':True,'components':list(plan['components']),'bootstrap_directory':str(self.root/'bootstrap'),'automatic_updates':hook['enabled']}
         except BaseException:
             self.rollback(journal);raise
 
@@ -569,7 +598,8 @@ class Manager:
         info=self.inspect_container(item['container'])
         if info:
             source=next((mount['Source'] for mount in info.get('Mounts',[]) if mount['Destination']=='/data'),None)
-            if info.get('Image')!=item['image'] or source!=item['data_directory']:
+            name='wg' if item['backend']=='wireguard' else 'awg'
+            if info.get('Image')!=item['image'] or source!=item['data_directory'] or info.get('HostConfig',{}).get('NetworkMode')!='host' or info.get('Config',{}).get('Labels',{}).get('com.docker.compose.service')!=name+'-easy':
                 raise ManagerError('Владение новым контейнером не подтверждено',73)
             self.run(['docker','stop',item['container']]);self.run(['docker','rm',item['container']])
         if self.run(['ip','link','show','dev',item['interface']],check=False) is not None:
@@ -604,6 +634,7 @@ class Manager:
             self.write_config(candidate)
             for name in selected:self.compose('up','-d','--no-deps',name+'-easy');self.health(candidate['components'][name])
             self.register(candidate);journal['candidate']=copy.deepcopy(candidate);self.commit_transaction(journal)
+            self.sync_boot_hook()
             return {'added':selected,'existing_components_unchanged':True}
         except BaseException:self.rollback(journal);raise
 
@@ -620,7 +651,7 @@ class Manager:
             candidate['components']={name:copy.deepcopy(manifest['manager_config']['components'][name]) for name in selected}
             if self.legacy(): raise ManagerError('Сначала выполните контролируемую миграцию исходного AWG через install',65)
             for name,item in candidate['components'].items():
-                item['data_directory']=str(self.project/('data' if name=='awg' else 'data-wg'))
+                item['data_directory']=str(Path(item['data_directory']).resolve())
                 target=Path(item['data_directory'])
                 if target.exists() and any(target.iterdir()): raise ManagerError('Каталог восстановления занят неизвестными данными',73)
         staged={}
@@ -634,7 +665,8 @@ class Manager:
                 item['image']=self.image(source['image'],source['backend']); item['image_ref']=source.get('image_ref',source['image'])
                 target=Path(item['data_directory'])
                 stage=target.parent/('.restore-'+uuid.uuid4().hex)
-                extract_component(args.file,name,stage); staged[name]=stage
+                staged[name]=stage
+                extract_component(args.file,name,stage)
                 self.validate_state_image(item,stage)
             validate_instances(candidate['components'])
             self.check_plan(candidate,previous)
@@ -657,6 +689,7 @@ class Manager:
                 if not previous: self.register(working)
                 journal['candidate']=copy.deepcopy(working)
                 self.commit_transaction(journal)
+                if not previous:self.sync_boot_hook()
                 return {'restored':selected,'verified':True}
             except BaseException:
                 self.rollback(journal)
@@ -682,7 +715,7 @@ class Manager:
             if legacy.get('running'):
                 self.run(['docker','start',item['container']]);self.health(item)
             self.journal.unlink(missing_ok=True);return
-        if previous and not snapshot and journal['operation'] in ('update','restore','uninstall'):
+        if previous and not snapshot and journal['operation'] in ('update','restore','uninstall','reinstall'):
             self.commit_rollback(journal);return
         if (journal['operation']=='extend' and previous) or (journal['operation'] in ('install','restore') and not previous):
             for name in journal['selected']:
@@ -758,6 +791,75 @@ class Manager:
         except BaseException:
             self.rollback(journal); raise
 
+    def reinstall(self,args):
+        previous=self.config(False)
+        if not previous:return self.install(args)
+        selected=self.selected(previous,args.component)
+        self.owned(previous)
+        environment_check(run=lambda command:self.run(command))
+        self.check_system_paths(previous)
+        remaining=copy.deepcopy(previous)
+        for name in selected:del remaining['components'][name]
+        self.planning_existing=remaining
+        self.reinstall_previous={'components':{name:item for name,item in previous['components'].items()
+            if (self.inspect_container(item['container']) or {}).get('State',{}).get('Running')}}
+        self.planning_targets=selected
+        try:candidate=self.plan_install(args)
+        finally:del self.planning_existing;del self.reinstall_previous;del self.planning_targets
+        # Переустановка сохраняет расположение рабочих каталогов, но не их содержимое.
+        for name in selected:
+            if not args.data_root:candidate['components'][name]['data_directory']=previous['components'][name]['data_directory']
+        selected=[name for name in candidate['components'] if name in selected]
+        self.check_plan(candidate,previous)
+        if args.build and not args.dry_run:self.build_images(args,selected)
+        for name in selected:
+            item=candidate['components'][name]
+            if item['data_directory']!=previous['components'][name]['data_directory']:
+                raise ManagerError('При переустановке нельзя менять каталог данных; используйте backup и restore',64)
+            if not args.dry_run:item['image']=self.image(item['image_ref'],item['backend'])
+        if args.dry_run:return {'dry_run':True,'reinstall':selected,'backups_preserved':True}
+        journal={'operation':'reinstall','phase':'prepared','previous':previous,'candidate':candidate,'selected':selected}
+        journal['bootstrap_before']={name+suffix:base64.b64encode((self.root/'bootstrap'/(name+suffix)).read_bytes()).decode()
+            for name in selected for suffix in ['.conf','.vpn-url'] if (self.root/'bootstrap'/(name+suffix)).is_file()}
+        try:
+            self.freeze(journal)
+            snapshot=self.backup_selected(previous,selected)['file']
+            journal.update(snapshot=snapshot,phase='snapshot_verified');self.save_journal(journal)
+            for name in selected:
+                self.cleanup_created(previous['components'][name])
+                shutil.rmtree(previous['components'][name]['data_directory'])
+                for suffix in ['.conf','.vpn-url']:(self.root/'bootstrap'/(name+suffix)).unlink(missing_ok=True)
+                self.initialize(name,candidate['components'][name],candidate)
+            candidate['maintenance_components']=selected
+            self.write_config(candidate)
+            for name in selected:self.compose('up','-d','--no-deps',name+'-easy');self.health(candidate['components'][name])
+            self.register(candidate);journal['candidate']=copy.deepcopy(candidate)
+            self.commit_transaction(journal)
+            self.sync_boot_hook()
+            return {'reinstalled':selected,'snapshot':snapshot,'backups_preserved':True,'forwarding_values_preserved':True}
+        except BaseException:self.rollback(journal);raise
+
+    def finish_uninstall(self,journal):
+        candidate=journal['candidate'];previous=journal['previous']
+        for name in journal['selected']:
+            for suffix in ['.conf','.vpn-url']:(self.root/'bootstrap'/(name+suffix)).unlink(missing_ok=True)
+        if candidate['components']:
+            candidate.pop('maintenance_components',None);self.write_config(candidate)
+        else:
+            try:vpnctl_boot.configure(self,False,previous)
+            except ManagerError as error:
+                if error.code!=73:raise
+                print('Предупреждение: boot updater изменён другим приложением; его служба не изменена',file=sys.stderr)
+            # Конфигурация не даёт права удалить произвольный путь с совпавшим hash.
+            allowed={str(path) for path in {**self.system_files(),**vpnctl_boot.files(self.system_root,'systemd'),**vpnctl_boot.files(self.system_root,'openrc')}}
+            for filename,digest in previous.get('manager_files',{}).items():
+                if filename not in allowed:continue
+                path=Path(filename)
+                if path.is_file() and not path.is_symlink() and hashlib.sha256(path.read_bytes()).hexdigest()==digest:path.unlink()
+            self.path.unlink(missing_ok=True);self.compose_path.unlink(missing_ok=True)
+            if (self.root/'bootstrap').exists():shutil.rmtree(self.root/'bootstrap')
+        self.journal.unlink(missing_ok=True)
+
     def uninstall(self,args):
         config=self.config(False)
         if not config: return {'unchanged':True,'installed':False}
@@ -775,17 +877,13 @@ class Manager:
                 if self.run(['ip','link','show','dev',item['interface']],check=False) is not None or self.run(['nft','list','table','inet',item['table']],check=False) is not None:
                     raise ManagerError('Сетевые ресурсы остались активны; данные сохранены',75)
                 shutil.rmtree(item['data_directory']); del candidate['components'][name]
-                for suffix in ['.conf','.vpn-url']:(self.root/'bootstrap'/(name+suffix)).unlink(missing_ok=True)
                 journal['phase']='removed:'+name;self.save_journal(journal)
-            if candidate['components']: self.write_config(candidate)
-            else:
-                self.path.unlink(missing_ok=True); self.compose_path.unlink(missing_ok=True)
-                for filename,digest in config.get('manager_files',{}).items():
-                    path=Path(filename)
-                    if path.is_file() and hashlib.sha256(path.read_bytes()).hexdigest()==digest: path.unlink()
-                if (self.root/'bootstrap').exists(): shutil.rmtree(self.root/'bootstrap')
-            self.journal.unlink()
-            return {'removed':selected,'snapshot':snapshot,'forwarding_values_preserved':True}
+            journal['candidate']=candidate
+            committed={**journal,'phase':'committed'};journal['phase']='commit_uncertain'
+            self.save_journal(committed);journal.update(committed)
+            self.finish_uninstall(journal)
+            command=self.system_root/'usr/local/sbin/vpnctl'
+            return {'removed':selected,'snapshot':snapshot,'forwarding_values_preserved':True,'backups_preserved':True,'vpnctl_removed':not command.exists() and not command.is_symlink()}
         except BaseException:
             self.rollback(journal);raise
 
@@ -808,24 +906,36 @@ class Manager:
             except subprocess.TimeoutExpired: process.kill();process.wait()
         return None
 
+def valid_port(value):
+    if not str(value).isdecimal() or not 1<=int(value)<=65535:raise argparse.ArgumentTypeError('Порт должен быть от 1 до 65535')
+    return int(value)
+
 def build_parser():
     parser=Parser(prog='vpnctl',description='Единое управление AWG и стандартным WireGuard')
     parser.add_argument('--config',default='/etc/vpn-easy-dual/config.json',help='Путь к конфигурации manager')
     sub=parser.add_subparsers(dest='command')
     sub.add_parser('help',help='Показать справку')
-    install=sub.add_parser('install',help='Установить Dual или безопасно дополнить исходный AWG')
-    install.add_argument('--host',help='Публичный IP или домен сервера')
-    install.add_argument('--lang',choices=['en','ru','fa','es','zh-cn'],default=None)
-    install.add_argument('--port','--awg-port',dest='awg_port',type=int)
-    install.add_argument('--wg-port',type=int,default=None)
-    install.add_argument('--panel-port','--awg-panel-port',dest='awg_panel_port',type=int,default=None)
-    install.add_argument('--wg-panel-port',type=int,default=None)
+    install_options=argparse.ArgumentParser(add_help=False)
+    install=install_options
+    install.add_argument('--host',default=os.environ.get('AWG_HOST'),help='Публичный IP или домен сервера')
+    install.add_argument('--lang',choices=['en','ru','fa','es','zh-cn'],default=os.environ.get('AWG_LANG') or None)
+    install.add_argument('--port','--awg-port',dest='awg_port',type=valid_port,default=os.environ.get('AWG_PORT'))
+    install.add_argument('--wg-port',type=valid_port,default=os.environ.get('WG_PORT'))
+    install.add_argument('--panel-port','--awg-panel-port',dest='awg_panel_port',type=valid_port,default=(os.environ.get('AWG_PANEL_PORT') or '51821') if 'AWG_PANEL_PORT' in os.environ else None)
+    install.add_argument('--wg-panel-port',type=valid_port,default=os.environ.get('WG_PANEL_PORT'))
     install.add_argument('--data-root')
-    install.add_argument('--awg-image',default='vpn-easy-awg:dual-dev')
-    install.add_argument('--wg-image',default='vpn-easy-wg:dual-dev')
+    install.add_argument('--awg-image',default=None)
+    install.add_argument('--wg-image',default=None)
     install.add_argument('--build',action='store_true',help='Собрать оба локальных образа после preflight')
     install.add_argument('--awg-interface',default='awg0');install.add_argument('--wg-interface',default='wg0')
     install.add_argument('--awg-subnet',default='10.8.0.0/24');install.add_argument('--wg-subnet',default='10.9.0.0/24')
+    actions=install.add_mutually_exclusive_group()
+    actions.add_argument('--uninstall',action='store_true',help='Удалить выбранную установку')
+    actions.add_argument('--reinstall',action='store_true',help='Выполнить чистую переустановку')
+    install.add_argument('--yes',action='store_true');install.add_argument('--dry-run',action='store_true');install.add_argument('--json',action='store_true')
+    for name in ['install','reinstall']:
+        item=sub.add_parser(name,parents=[install_options],conflict_handler='resolve',help='Установка и дополнение Dual' if name=='install' else 'Чистая переустановка с новыми ключами')
+        if name=='reinstall':item.add_argument('component',nargs='?',choices=['all','awg','wg'],default='all')
     for name in ['status','start','stop','restart','settings','logs','diagnose','update','backup','uninstall']:
         item=sub.add_parser(name)
         item.add_argument('component',nargs='?',choices=['all','awg','wg'],default='all')
@@ -840,7 +950,7 @@ def build_parser():
             item.add_argument('--peer-role',choices=['home','guest'],default='home')
             item.add_argument('--internet-url',default='https://example.com/')
             item.add_argument('--dns',action='store_true',help='Проверить DNS из профиля через VPN')
-    install.add_argument('--yes',action='store_true');install.add_argument('--dry-run',action='store_true');install.add_argument('--json',action='store_true')
+
     restore=sub.add_parser('restore',help='Восстановить проверенный архив')
     restore.add_argument('--file',required=True);restore.add_argument('--component',choices=['all','awg','wg'],required=True)
     restore.add_argument('--yes',action='store_true');restore.add_argument('--dry-run',action='store_true');restore.add_argument('--json',action='store_true')
@@ -858,19 +968,26 @@ def build_parser():
         item.add_argument('--json',action='store_true')
     recover=sub.add_parser('recover',help='Восстановиться после прерванной операции')
     recover.add_argument('--yes',action='store_true');recover.add_argument('--json',action='store_true')
+    auto=sub.add_parser('auto-update',help='Проверка stable-релиза после загрузки ОС')
+    auto.add_argument('action',choices=['enable','disable','status','run'])
+    auto.add_argument('--json',action='store_true')
     return parser
 
 def confirmation(args,message):
     if getattr(args,'yes',False) or getattr(args,'dry_run',False): return
     if not sys.stdin.isatty(): raise ManagerError('Требуется подтверждение: '+message+'. Для автоматизации укажите --yes',64)
-    answer=input(message+' Продолжить? [y/N]: ').strip().casefold()
-    if answer not in ('y','yes','да','д'): raise ManagerError('Операция отменена',64)
+    while True:
+        try:answer=input(message+' Продолжить? [y/N]: ').strip().casefold()
+        except EOFError:raise ManagerError('Операция отменена',64) from None
+        if answer in ('y','yes','да','д'):return
+        if answer in ('','n','no','нет','н'):raise ManagerError('Операция отменена',64)
+        print('Введите yes или no',file=sys.stderr)
 
 def menu(manager):
     print(json.dumps(manager.status(),ensure_ascii=False,indent=2))
     choices={'1':['status'],'2':['start'],'3':['stop'],'4':['restart'],'5':['settings'],'6':['client','list'],
-      '7':['backup'],'8':['diagnose'],'9':['logs'],'10':['update'],'11':['restore'],'12':['reset-password'],'13':['uninstall']}
-    print('1 Состояние; 2 Запуск; 3 Остановка; 4 Перезапуск; 5 Настройки; 6 Клиенты;\n7 Backup; 8 Диагностика; 9 Журналы; 10 Update; 11 Restore; 12 Пароль; 13 Удаление; 0 Выход')
+      '7':['backup'],'8':['diagnose'],'9':['logs'],'10':['update'],'11':['restore'],'12':['reset-password'],'13':['uninstall'],'14':['reinstall']}
+    print('1 Состояние; 2 Запуск; 3 Остановка; 4 Перезапуск; 5 Настройки; 6 Клиенты;\n7 Backup; 8 Диагностика; 9 Журналы; 10 Update; 11 Restore; 12 Пароль; 13 Удаление; 14 Чистая переустановка; 0 Выход')
     choice=input('Действие: ').strip()
     if choice=='0': return None
     if choice not in choices: raise ManagerError('Неизвестный пункт меню',64)
@@ -888,8 +1005,36 @@ def menu(manager):
         return command
     return command+[input('Компонент all/awg/wg: ').strip() or 'all']
 
+def parse_arguments(project,argv):
+    values=list(sys.argv[1:] if argv is None else argv)
+    validate_only=bool(values and values[0]=='--validate-only')
+    if validate_only:values.pop(0)
+    prefix=[]
+    while values and (values[0]=='--config' or values[0].startswith('--config=')):
+        flag=values.pop(0);prefix.append(flag)
+        if flag=='--config' and values:prefix.append(values.pop(0))
+    if values and values[0].startswith('--') and values[0]!='--help':values.insert(0,'install')
+    parser=build_parser();args=parser.parse_args(prefix+values)
+    if not Path(args.config).is_absolute():args.config=str((Path(project)/args.config).resolve())
+    if args.command in ('install','reinstall'):
+        if args.lang is not None and args.lang not in ('en','ru','fa','es','zh-cn'):parser.error('Некорректный язык')
+        if getattr(args,'uninstall',False):args.command='uninstall';args.component='all'
+        elif getattr(args,'reinstall',False):args.command='reinstall';args.component='all'
+        if args.command in ('install','reinstall'):
+            for name in ('awg','wg'):
+                if getattr(args,name+'_image') is None:
+                    if args.build:setattr(args,name+'_image','vpn-easy-'+name+':dual-dev')
+                    else:
+                        release=json.loads((Path(project)/'release-images.json').read_text())
+                        setattr(args,name+'_image',release['images'][name])
+            if args.data_root:args.data_root=str((Path(project)/args.data_root).resolve())
+    return parser,args,validate_only
+
 def main(project,argv=None):
-    parser=build_parser();args=parser.parse_args(argv)
+    try:parser,args,validate_only=parse_arguments(project,argv)
+    except (OSError,ValueError,KeyError):
+        print('Ошибка: не удалось прочитать закреплённые образы из release-images.json',file=sys.stderr);return 65
+    if validate_only:return 0
     if args.command=='help': parser.print_help();return 0
     if os.geteuid()!=0: print('Ошибка: запустите vpnctl через sudo',file=sys.stderr);return 69
     manager=Manager(project,args.config)
@@ -898,16 +1043,34 @@ def main(project,argv=None):
         try: chosen=menu(manager)
         except ManagerError as error: print('Ошибка: '+str(error),file=sys.stderr);return error.code
         return main(project,['--config',args.config,*chosen]) if chosen else 0
-    readonly=args.command in ('status','settings','logs','diagnose') or args.command=='client' and args.action in ('list','export')
+    readonly=args.command in ('status','settings','logs','diagnose') or args.command=='client' and args.action in ('list','export') or args.command=='auto-update' and args.action=='status'
     dry=getattr(args,'dry_run',False)
     try:
         if manager.journal.exists() and not readonly and args.command not in ('recover','stop'):
             raise ManagerError('Обнаружена прерванная операция; выполните vpnctl recover',75)
-        if args.command in ('backup','restore','update','uninstall','recover') or args.command=='client' and args.action=='remove':
+        if args.command in ('uninstall','reinstall'):
+            confirmation(args,'Будут удалены рабочие клиенты, ключи, пароль, настройки и bootstrap-профили выбранных VPN. Внутренние backup со старыми ключами сохраняются. Docker, чужие ресурсы и текущий forwarding сохраняются. После удаления последнего VPN установленная команда vpnctl удаляется')
+        elif args.command in ('backup','restore','update','recover') or args.command=='client' and args.action=='remove':
             confirmation(args,'Операция может остановить выбранные VPN или заменить данные')
+        if args.command=='install' and manager.config(False) and set(manager.config()['components'])=={'awg','wg'}:
+            if not sys.stdin.isatty():raise ManagerError('Установка уже существует. Используйте vpnctl status, uninstall или reinstall; для удаления данных требуется --yes',64)
+            print('Установка уже существует:\n1 Сохранить и выйти (по умолчанию)\n2 Удалить\n3 Чистая переустановка')
+            try:choice=input('Действие [1]: ').strip() or '1'
+            except EOFError:choice='1'
+            if choice=='1':return 0
+            if choice not in ('2','3'):raise ManagerError('Неизвестный пункт меню; установка не изменена',64)
+            args.command='uninstall' if choice=='2' else 'reinstall';args.component='all'
+            confirmation(args,'Будут удалены рабочие клиенты, ключи, пароль и настройки; внутренние backup сохраняются')
         if args.command=='install' and not manager.config(False) and manager.legacy():
             confirmation(args,'Миграция кратковременно остановит исходный AWG; сначала будет создана резервная копия')
         def perform():
+            if args.command=='auto-update':
+                if args.action=='run':return vpnctl_boot.run(manager)
+                config=manager.config()
+                if args.action=='status':return vpnctl_boot.status(manager)
+                manager.check_system_paths(config)
+                config['auto_check']=args.action=='enable';manager.register(config)
+                return vpnctl_boot.configure(manager,config['auto_check'])
             if args.command=='status': return manager.status(args.component)
             if args.command in ('start','stop','restart'): return manager.lifecycle(args.command,args.component)
             if args.command=='install':
@@ -919,6 +1082,7 @@ def main(project,argv=None):
                     inspect_conflicts(plan['components'],owned=proof,run=lambda command:manager.run(command))
                     return {'dry_run':True,'components':plan['components']}
                 return manager.install(args)
+            if args.command=='reinstall':return manager.reinstall(args)
             if args.command=='diagnose': return manager.diagnose(args.component,args)
             if args.command=='backup': return manager.backup(args.component,args.output)
             if args.command=='restore': return manager.restore(args)

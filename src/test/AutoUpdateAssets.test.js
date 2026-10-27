@@ -1,3 +1,4 @@
+// Проверки сохранённого оригинального установщика 0.1.6 как эталона миграции.
 'use strict';
 
 const assert = require('node:assert/strict');
@@ -8,7 +9,7 @@ const test = require('node:test');
 
 const root = path.join(__dirname, '..', '..');
 const manager = fs.readFileSync(path.join(root, 'awg-easy-3'), 'utf8').replace(/\r\n/g, '\n');
-const installer = fs.readFileSync(path.join(root, 'install.sh'), 'utf8').replace(/\r\n/g, '\n');
+const installer = fs.readFileSync(path.join(root, 'scripts', 'fixtures', 'original-install-0.1.6.sh'), 'utf8').replace(/\r\n/g, '\n');
 const updater = fs.readFileSync(path.join(root, 'lib', 'auto-update.sh'), 'utf8').replace(/\r\n/g, '\n');
 const shell = process.env.AWG_TEST_SHELL || (process.platform === 'win32' ? null : 'sh');
 const shellOptions = { skip: !shell && 'Set AWG_TEST_SHELL to a POSIX sh executable on Windows' };

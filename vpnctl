@@ -1,7 +1,13 @@
 #!/bin/sh
 # Команда доступна из каталога исходников и после установки в /usr/local/sbin.
 set -eu
-base=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+launcher=$0
+while [ -L "$launcher" ]; do
+  location=$(CDPATH= cd -- "$(dirname -- "$launcher")" && pwd)
+  target=$(readlink "$launcher")
+  case "$target" in /*) launcher=$target ;; *) launcher=$location/$target ;; esac
+done
+base=$(CDPATH= cd -- "$(dirname -- "$launcher")" && pwd)
 if [ ! -r "$base/lib/vpnctl_manager.py" ]; then
   [ -r /etc/vpn-easy-dual-install-dir ] || { printf 'Ошибка: каталог установки vpnctl не найден\n' >&2; exit 69; }
   IFS= read -r base < /etc/vpn-easy-dual-install-dir
@@ -12,11 +18,26 @@ config=/etc/vpn-easy-dual/config.json
 take_config=0
 for argument in "$@"; do
   if [ "$take_config" -eq 1 ]; then config=$argument; take_config=0; continue; fi
-  case "$argument" in --config) take_config=1 ;; --config=*) config=${argument#--config=} ;; -*) break ;; *) action=$argument; break ;; esac
+  case "$argument" in --config) take_config=1 ;; --config=*) config=${argument#--config=} ;; --help|-h) action=help; break ;; -*) action=install; break ;; *) action=$argument; break ;; esac
 done
-if [ "$action" = install ] && [ ! -r "$config" ]; then
+case "$config" in /*) ;; *) config=$base/$config ;; esac
+if [ "$action" = help ] && ! command -v python3 >/dev/null 2>&1; then
+  exec sh "$base/lib/vpnctl-install-validate.sh" --help
+fi
+if [ -z "$action" ] && [ ! -r "$config" ]; then set -- "$@" install; action=install; fi
+if [ "$action" = install ] || [ "$action" = reinstall ]; then
+  if command -v python3 >/dev/null 2>&1; then
+    python3 "$base/lib/vpnctl_manager.py" --validate-only "$@"
+  else
+    sh "$base/lib/vpnctl-install-validate.sh" "$@"
+  fi
+  for argument in "$@"; do
+    case "$argument" in --help|-h) exit 0 ;; esac
+  done
+fi
+if { [ "$action" = install ] || [ "$action" = reinstall ]; } && [ ! -r "$config" ]; then
   dry=0; provision=
-  for argument in "$@"; do case "$argument" in --dry-run) dry=1 ;; --yes) provision=--yes ;; esac; done
+  for argument in "$@"; do case "$argument" in --dry-run|--uninstall) dry=1 ;; --yes) provision=--yes ;; esac; done
   if [ "$dry" -eq 0 ]; then
     [ "$(id -u)" -eq 0 ] || { printf 'Ошибка: запустите установку через sudo\n' >&2; exit 69; }
     install -d -m 0755 /run/lock
