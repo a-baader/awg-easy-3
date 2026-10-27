@@ -52,7 +52,7 @@ try:
         (build/'Dockerfile').write_text('FROM '+image+'\nLABEL test.recovery="'+prefix+'"\n')
         execute(['docker','build','-t',tag,str(build)],env={**os.environ,'DOCKER_BUILDKIT':'0'})
         candidate_images[name]=tag
-    manifest=root/'release.json';atomic_json(manifest,{'version':'0.1.6','images':candidate_images})
+    manifest=root/'release.json';atomic_json(manifest,{'version':(PROJECT/'VERSION').read_text().strip(),'images':candidate_images})
     for stage in ['before_snapshot','updated:awg','committed','rollback_committed']:
         before=manager.config()
         states={name:(Path(item['data_directory'])/'state.json').read_bytes() for name,item in before['components'].items()}

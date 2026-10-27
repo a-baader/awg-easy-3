@@ -94,6 +94,8 @@ jobs:
     timeout-minutes: 35
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: actions/setup-node@v4
         with:
           node-version: 22.18.0
@@ -134,3 +136,19 @@ jobs:
           sudo -E python3 scripts/test-vpnctl-recovery.py
           sudo -E python3 scripts/test-vpnctl-packet-probes.py
           sudo -E python3 scripts/test-vpnctl-uninstall.py
+      - name: Браузерная проверка через настоящие Home VPN
+        env:
+          TEST_AWG_IMAGE: vpn-easy-awg:dual-stage7
+          TEST_WG_IMAGE: vpn-easy-wg:dual-stage7
+          PLAYWRIGHT_BROWSERS_PATH: ${{ runner.temp }}/playwright-browsers
+          BROWSER_ARTIFACT_DIR: ${{ runner.temp }}/vpn-browser-artifacts
+        run: |
+          npm ci --prefix scripts/browser --ignore-scripts
+          npm exec --prefix scripts/browser -- playwright install --with-deps chromium
+          export BROWSER_NODE="$(command -v node)"
+          sudo -E python3 scripts/test-vpnctl-browser.py
+          sudo chown -R "$(id -u):$(id -g)" "$BROWSER_ARTIFACT_DIR"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: browser-report
+          path: ${{ runner.temp }}/vpn-browser-artifacts

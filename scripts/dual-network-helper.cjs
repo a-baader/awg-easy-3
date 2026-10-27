@@ -108,7 +108,7 @@ async function request(host, portNumber, allow) {
     const stripped = await run(binary + '-quick', ['strip', '/tmp/peer.conf']);
     await fs.writeFile('/tmp/peer.stripped', stripped.stdout, { mode: 0o600 });
     const own4 = config.match(/^Address = ([^,\n]+)/m)[1].split('/')[0];
-    const own6 = config.match(/^Address = .*,\s*([^,\n]+)/m)[1].split('/')[0];
+    const own6 = config.match(/^Address = .*,\s*([^,\n]+)/m)?.[1].split('/')[0];
     let driver;
     if (kind === 'wireguard') {
       driver = new UserspaceWireGuard();
@@ -117,7 +117,7 @@ async function request(host, portNumber, allow) {
       await run('amneziawg-go', ['peer0']);
       await run('awg', ['setconf', 'peer0', '/tmp/peer.stripped']);
       await run('ip', ['address', 'add', own4 + '/32', 'dev', 'peer0']);
-      await run('ip', ['-6', 'address', 'add', own6 + '/128', 'dev', 'peer0', 'nodad']);
+      if (own6) await run('ip', ['-6', 'address', 'add', own6 + '/128', 'dev', 'peer0', 'nodad']);
       await run('ip', ['link', 'set', 'dev', 'peer0', 'mtu', '1280', 'up']);
     }
     const defaults = JSON.parse((await run('ip', ['-j', '-4', 'route', 'show', 'default'])).stdout);
@@ -127,7 +127,7 @@ async function request(host, portNumber, allow) {
     await run('ip', ['rule', 'add', 'fwmark', '51820', 'table', '100', 'priority', '100']);
     await run(binary, ['set', 'peer0', 'fwmark', '51820']);
     for (const subnet of ['0.0.0.0/1', '128.0.0.0/1', '224.0.0.0/4']) await run('ip', ['route', 'add', subnet, 'dev', 'peer0']);
-    for (const subnet of ['2000::/3', 'fc00::/7']) await run('ip', ['-6', 'route', 'add', subnet, 'dev', 'peer0']);
+    if (own6) for (const subnet of ['2000::/3', 'fc00::/7']) await run('ip', ['-6', 'route', 'add', subnet, 'dev', 'peer0']);
     echo();
     for (const udpPort of [5353, 1900]) {
       const socket = dgram.createSocket({ type: 'udp4', reuseAddr: true });

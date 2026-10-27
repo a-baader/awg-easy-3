@@ -94,7 +94,7 @@ try:
     assert (Path(wg['data_directory'])/'state.json').read_bytes()==before
     assert manager.rpc(cfg['components']['awg'],'diagnose')['panel']
     passed('реальный backup/restore WG сохраняет ключи и не перезапускает AWG')
-    release=root/'release.json';atomic_json(release,{'version':'0.1.6','images':images})
+    release=root/'release.json';atomic_json(release,{'version':(PROJECT/'VERSION').read_text().strip(),'images':images})
     update=build_parser().parse_args(['update','all','--manifest',str(release),'--yes'])
     manager.update(update);assert not manager.journal.exists()
     for item in cfg['components'].values():

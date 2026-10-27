@@ -1,7 +1,7 @@
 {
-  "name": "awg-easy-3",
-  "version": "0.1.6",
-  "description": "A simple self-hosted web panel for AmneziaWG 3.x.",
+  "name": "vpn-easy-dual",
+  "version": "0.2.0-rc.1",
+  "description": "Общая панель AmneziaWG 3.x и стандартного userspace WireGuard",
   "main": "server.js",
   "scripts": {
     "serve": "node server.js serve",

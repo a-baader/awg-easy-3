@@ -1,6 +1,7 @@
 # VPN Easy Dual
 
-> Рабочая ветка **VPN Easy Dual**: два контейнера AWG/WG и единый host CLI.
+> Предварительный выпуск **VPN Easy Dual 0.2.0-rc.1** — **0.2.0-rc.1**.
+> [Описание выпуска](docs/releases/v0.2.0-rc.1.md). Два контейнера AWG/WG и единый host CLI.
 > Для установки используйте [INSTALL_DUAL.ru.md](docs/INSTALL_DUAL.ru.md),
 > для сборки — [BUILD.md](docs/BUILD.md), для команд — [CLI.ru.md](docs/CLI.ru.md).
 > Состояние приёмки и непроверенные сценарии — [TEST_REPORT.md](docs/TEST_REPORT.md).

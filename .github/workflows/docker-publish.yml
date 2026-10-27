@@ -23,6 +23,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
+      actions: read
       packages: write
 
     steps:
@@ -32,6 +33,14 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22.18.0
+
+      - name: Проверить успешный CI для точного commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -eu
+          passed=$(gh run list --repo "$GITHUB_REPOSITORY" --commit "$GITHUB_SHA" --workflow test.yml --limit 100 --json conclusion --jq '[.[] | select(.conclusion == "success")] | length')
+          test "$passed" -gt 0
 
       - name: Verify release metadata
         id: release
@@ -44,7 +53,8 @@ jobs:
           test "$GITHUB_REF_NAME" = "v$version"
           [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-rc\.[1-9][0-9]*)?$ ]]
           test "$(node -p "require('./src/package.json').version")" = "$version"
-          grep -Fq "ghcr.io/alexsemenovru/awg-easy-3:$version" docker-compose.yml
+          grep -Fq "ghcr.io/a-baader/awg-easy-3-awg:$version" docker-compose.dual.yml
+          grep -Fq "ghcr.io/a-baader/awg-easy-3-wg:$version" docker-compose.dual.yml
           grep -Fq "const STATE_VERSION = $state_version;" src/lib/StateStore.js
           if [[ "$version" == *-* ]]; then
             echo 'is_stable=false' >> "$GITHUB_OUTPUT"
@@ -85,6 +95,7 @@ jobs:
             type=raw,value=latest,enable=${{ steps.release.outputs.is_stable == 'true' }}
 
       - name: Build and push Docker image
+        id: published
         uses: docker/build-push-action@v5
         with:
           context: .
@@ -96,6 +107,21 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
+      - name: Сохранить digest образа
+        env:
+          IMAGE_DIGEST: ${{ steps.published.outputs.digest }}
+          IMAGE_BACKEND: ${{ matrix.backend }}
+        run: |
+          python3 - <<'PYCODE'
+          import json,os
+          from pathlib import Path
+          Path('image-digest.json').write_text(json.dumps({'backend':os.environ['IMAGE_BACKEND'],'digest':os.environ['IMAGE_DIGEST']})+'\n')
+          PYCODE
+      - uses: actions/upload-artifact@v4
+        with:
+          name: image-digest-${{ matrix.backend }}
+          path: image-digest.json
+
   release:
     needs: build-and-push
     if: github.event_name == 'workflow_dispatch' && inputs.publish == true && startsWith(github.ref, 'refs/tags/v')
@@ -104,6 +130,16 @@ jobs:
       contents: write
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: image-digest-*
+          path: image-digests
+      - name: Собрать manifest и инструкции по digest
+        run: |
+          mkdir -p merged-digests
+          cp image-digests/image-digest-awg/image-digest.json merged-digests/awg.json
+          cp image-digests/image-digest-wg/image-digest.json merged-digests/wg.json
+          python3 scripts/prepare-release-assets.py --digests merged-digests --output release-assets --repository "$GITHUB_REPOSITORY" --commit "$GITHUB_SHA"
       - name: Publish release notes after the image is available
         env:
           GH_TOKEN: ${{ github.token }}
@@ -118,11 +154,13 @@ jobs:
           elif [ "$prerelease" = true ]; then
             gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" \
               --verify-tag --prerelease --latest=false \
-              --title "AWG-Easy 3 $GITHUB_REF_NAME — test candidate" \
-              --notes-file "docs/releases/$GITHUB_REF_NAME.md"
+              --title "VPN Easy Dual $GITHUB_REF_NAME — предварительный выпуск" \
+              --notes-file release-assets/notes.md
           else
             gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" \
               --verify-tag --latest \
-              --title "AWG-Easy 3 $GITHUB_REF_NAME" \
-              --notes-file "docs/releases/$GITHUB_REF_NAME.md"
+              --title "VPN Easy Dual $GITHUB_REF_NAME" \
+              --notes-file release-assets/notes.md
           fi
+          gh release upload "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" \
+            release-assets/release-manifest.json release-assets/install-command.txt release-assets/SHA256SUMS --clobber

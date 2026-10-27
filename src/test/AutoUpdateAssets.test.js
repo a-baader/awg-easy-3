@@ -17,10 +17,12 @@ test('release metadata stays aligned across application, state and image', () =>
   const version = fs.readFileSync(path.join(root, 'VERSION'), 'utf8').trim();
   const stateVersion = fs.readFileSync(path.join(root, 'STATE_VERSION'), 'utf8').trim();
   const packageJson = JSON.parse(fs.readFileSync(path.join(root, 'src', 'package.json'), 'utf8'));
-  const compose = fs.readFileSync(path.join(root, 'docker-compose.yml'), 'utf8');
+  const compose = fs.readFileSync(path.join(root, 'docker-compose.dual.yml'), 'utf8');
+  const legacy = fs.readFileSync(path.join(root, 'docker-compose.yml'), 'utf8');
   const store = fs.readFileSync(path.join(root, 'src', 'lib', 'StateStore.js'), 'utf8');
   assert.equal(version, packageJson.version);
-  assert.match(compose, new RegExp(`ghcr\\.io/alexsemenovru/awg-easy-3:${version.replaceAll('.', '\\.')}`));
+  for (const backend of ['awg', 'wg']) assert.ok(compose.includes(`ghcr.io/a-baader/awg-easy-3-${backend}:${version}`));
+  assert.ok(legacy.includes('ghcr.io/alexsemenovru/awg-easy-3:0.1.6'));
   assert.match(store, new RegExp(`const STATE_VERSION = ${stateVersion};`));
   const workflow = fs.readFileSync(path.join(root, '.github', 'workflows', 'docker-publish.yml'), 'utf8');
   assert.match(workflow, /Verify release metadata/);
