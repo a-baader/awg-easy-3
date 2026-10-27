@@ -1,6 +1,6 @@
 # Архитектура VPN Easy Dual
 
-Статус: аудит завершён; реализован этап 1 — InstanceConfig, проверка конфликтов и независимый ownership runtime/firewall. WG backend и остальные этапы в разработке.
+Статус: этапы 0–4 реализованы и проверены в пределах TEST_REPORT. Host manager, миграция/backup/recovery и полная матрица в разработке.
 Основание: `TZ_VPN_Easy_Dual_Agent.md`, исходный SHA указан в BASELINE_AUDIT.
 
 ## Компоненты и потоки

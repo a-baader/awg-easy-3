@@ -1,0 +1,47 @@
+name: vpn-easy-dual
+
+x-runtime: &runtime
+  restart: unless-stopped
+  network_mode: host
+  cap_add: [NET_ADMIN]
+  devices: [/dev/net/tun:/dev/net/tun]
+  read_only: true
+  tmpfs:
+    - /run:mode=0700,size=16m
+    - /tmp:mode=1777,size=32m
+  security_opt: [no-new-privileges:true]
+  stop_grace_period: 15s
+
+services:
+  awg-easy:
+    <<: *runtime
+    image: ${AWG_IMAGE:-vpn-easy-awg:dual-dev}
+    container_name: awg-easy-3
+    build:
+      context: .
+      target: awg
+    volumes:
+      - ${AWG_DATA_DIR:-./data}:/data
+    environment:
+      VPN_BACKEND: amneziawg
+      VPN_DUAL_MODE: '1'
+      AWG_HOST: ${AWG_HOST:-}
+      AWG_PORT: ${AWG_PORT:-51820}
+      AWG_PANEL_PORT: ${AWG_PANEL_PORT:-51821}
+      AWG_LANG: ${VPN_LANG:-en}
+  wg-easy:
+    <<: *runtime
+    image: ${WG_IMAGE:-vpn-easy-wg:dual-dev}
+    container_name: wg-easy-dual
+    build:
+      context: .
+      target: wg
+    volumes:
+      - ${WG_DATA_DIR:-./data-wg}:/data
+    environment:
+      VPN_BACKEND: wireguard
+      VPN_DUAL_MODE: '1'
+      VPN_HOST: ${WG_HOST:-}
+      VPN_PORT: ${WG_PORT:-51824}
+      VPN_PANEL_PORT: ${WG_PANEL_PORT:-51825}
+      VPN_LANG: ${VPN_LANG:-en}

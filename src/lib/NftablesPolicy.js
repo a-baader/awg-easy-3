@@ -72,6 +72,9 @@ const renderNftablesPolicy = ({
   geoClients = [],
   geoDatabase = {},
   tableName = TABLE_NAME,
+  isolation = false,
+  serverAddress4,
+  serverAddress6,
 }) => {
   validateOwnedTable(tableName);
   const awg = validateInterface(interfaceName);
@@ -140,6 +143,30 @@ const renderNftablesPolicy = ({
   const geo = renderGeoIpPolicy({ clients: geoClients, database: geoDatabase, awg, wan,
     active4: [...normalizedHome4, ...normalizedGuest4], active6: [...normalizedHome6, ...normalizedGuest6] });
 
+  const legacyInput = `
+    iifname ${quote(awg)} ip saddr @guest4 ip daddr ${subnet4} drop comment "guest peers cannot access AWG-Easy 3 services"
+    iifname ${quote(awg)} ip saddr @home4 tcp dport ${port} accept comment "home peers may access the panel"${ipv6InputRules}`;
+  let strictInput = '';
+  if (isolation) {
+    validateAddress(serverAddress4, 4, 'serverAddress4');
+    if (subnet6) validateAddress(serverAddress6, 6, 'serverAddress6');
+    strictInput = `
+    ip daddr ${subnet4} iifname != ${quote(awg)} iifname != "lo" drop comment "deny foreign access to VPN host"
+    iifname ${quote(awg)} ip saddr @home4 ip daddr ${serverAddress4} tcp dport ${port} accept comment "own Home panel"
+    iifname ${quote(awg)} ip saddr @home4 ip daddr ${serverAddress4} icmp type echo-request accept comment "own Home diagnostics"
+    iifname ${quote(awg)} ip saddr @home4 ip daddr { ${serverAddress4}, 224.0.0.251, 239.255.255.250 } udp dport { 5353, 1900 } accept comment "own Home discovery"${subnet6 ? `
+    ip6 daddr ${subnet6} iifname != ${quote(awg)} iifname != "lo" drop comment "deny foreign IPv6 access to VPN host"
+    iifname ${quote(awg)} ip6 saddr @home6 ip6 daddr ${serverAddress6} tcp dport ${port} accept comment "own Home IPv6 panel"
+    iifname ${quote(awg)} ip6 saddr @home6 ip6 daddr ${serverAddress6} icmpv6 type echo-request accept comment "own Home IPv6 diagnostics"` : ''}
+    iifname ${quote(awg)} drop comment "deny VPN access to other host services"`;
+  }
+  const privateDestinations = isolation ? `
+    iifname ${quote(awg)} ip daddr { 0.0.0.0/8, 10.0.0.0/8, 100.64.0.0/10, 127.0.0.0/8, 169.254.0.0/16, 172.16.0.0/12, 192.168.0.0/16, 198.18.0.0/15, 224.0.0.0/4, 240.0.0.0/4 } drop comment "deny private and host-service forwarding"
+    iifname ${quote(awg)} ip6 daddr { ::/96, ::ffff:0:0/96, fc00::/7, fe80::/10, ff00::/8, 2001:db8::/32 } drop comment "deny private IPv6 forwarding"` : '';
+  const forwardBoundary = isolation ? `
+    iifname ${quote(awg)} drop comment "deny other VPN egress"
+    oifname ${quote(awg)} drop comment "deny unsolicited VPN ingress"` : '';
+
   return `# Managed by AWG-Easy 3. Do not append unrelated rules to this table.
 table inet ${tableName} {
   set active4 {
@@ -161,18 +188,16 @@ ${ipv6Sets}${geo.sets}
 
   chain input {
     type filter hook input priority -10; policy accept;
-    jump client_permissions
-    iifname ${quote(awg)} ip saddr @guest4 ip daddr ${subnet4} drop comment "guest peers cannot access AWG-Easy 3 services"
-    iifname ${quote(awg)} ip saddr @home4 tcp dport ${port} accept comment "home peers may access the panel"${ipv6InputRules}
+    jump client_permissions${isolation ? strictInput : legacyInput}
   }
 
   chain forward {
     type filter hook forward priority -10; policy accept;
     jump client_permissions
     iifname ${quote(awg)} oifname ${quote(awg)} ip saddr @home4 ip daddr @home4 accept comment "home peer traffic"${ipv6HomeForwardRule}
-    iifname ${quote(awg)} oifname ${quote(awg)} drop comment "isolate guest peers"
+    iifname ${quote(awg)} oifname ${quote(awg)} drop comment "isolate guest peers"${privateDestinations}
 ${geo.rules ? `${geo.rules}\n` : ''}    iifname ${quote(awg)} oifname ${quote(wan)} ip saddr ${subnet4} accept comment "AWG IPv4 to WAN"
-    iifname ${quote(wan)} oifname ${quote(awg)} ip daddr ${subnet4} ct state established,related accept comment "return IPv4 traffic"${ipv6ForwardRules}
+    iifname ${quote(wan)} oifname ${quote(awg)} ip daddr ${subnet4} ct state established,related accept comment "return IPv4 traffic"${ipv6ForwardRules}${forwardBoundary}
   }
 
   chain output {

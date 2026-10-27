@@ -109,4 +109,5 @@ test('WG HTTP metadata идентифицирует свою панель, эк�
   assert.equal((await (await fetch(root + '/manifest.json')).json()).name, 'WG Easy Dual');
   const response = await fetch(root + '/api/v1/clients/home-admin/export?format=native-config');
   assert.equal(response.status, 401);
+  assert.match(response.headers.get('content-security-policy'), /img-src 'self' data: blob:/);
 });

@@ -5,6 +5,7 @@ const { Application } = require('./lib/Application');
 const command = process.argv[2] ?? 'serve';
 const application = new Application({
   backendName: process.env.VPN_BACKEND ?? 'amneziawg',
+  dualMode: process.env.VPN_DUAL_MODE === '1',
   dataDirectory: process.env.VPN_DATA_DIR ?? process.env.AWG_EASY_DATA_DIR ?? '/data',
   runtimeDirectory: process.env.VPN_RUNTIME_DIR ?? process.env.AWG_EASY_RUNTIME_DIR,
 });
@@ -35,7 +36,7 @@ const main = async () => {
       firstClientName: process.env.AWG_FIRST_CLIENT_NAME || 'Home admin',
       listenPort: Number(process.env.VPN_PORT ?? process.env.AWG_PORT ?? application.backend.instance.listenPort),
       panelPort: Number(process.env.VPN_PANEL_PORT ?? process.env.AWG_PANEL_PORT ?? application.backend.instance.panelPort),
-      uiLanguage: process.env.AWG_LANG || 'en',
+      uiLanguage: process.env.VPN_LANG || process.env.AWG_LANG || 'en',
     }));
   }
   if (command === 'settings') {

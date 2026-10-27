@@ -12,7 +12,7 @@ const peerAddresses = (client, serverHasIPv6) => [
   ...(serverHasIPv6 && client.address6 ? [`${client.address6}/128`] : []),
 ];
 
-const buildAwgArtifacts = ({ server, clients, geoDatabase = {} }) => {
+const buildAwgArtifacts = ({ server, clients, geoDatabase = {}, isolation = false }) => {
   if (!server || typeof server !== 'object' || Array.isArray(server)) {
     throw new TypeError('server must be an object');
   }
@@ -46,6 +46,7 @@ const buildAwgArtifacts = ({ server, clients, geoDatabase = {} }) => {
 
   const nftables = renderNftablesPolicy({
     tableName: backend.instance.tableName,
+    isolation, serverAddress4: server.address4, serverAddress6: server.address6,
     geoDatabase,
     geoClients: enabledClients.map(client => ({
       policy: client.geoPolicy,

@@ -38,6 +38,7 @@ class RuntimeApplier {
     nftBinary = 'nft',
     tableName = TABLE_NAME,
     interfaceDriver,
+    protectBeforeInterface = false,
   } = {}) {
     if (typeof runner !== 'function') throw new TypeError('runner must be a function');
     if (!fileSystem || typeof fileSystem.writeFile !== 'function') {
@@ -51,6 +52,7 @@ class RuntimeApplier {
     this.nftBinary = nftBinary;
     this.tableName = validateOwnedTable(tableName);
     this.interfaceDriver = interfaceDriver;
+    this.protectBeforeInterface = protectBeforeInterface;
     this.compatibilityRules = DOCKER_COMPATIBILITY.map(rule => ({ ...rule,
       marker: rule.marker.replace('awg_easy_3', this.tableName) }));
   }
@@ -191,6 +193,16 @@ class RuntimeApplier {
       await this.runner(this.nftBinary, ['-c', '-f', stagedNftPath]);
       if (dockerBatch) await this.runner(this.nftBinary, ['-c', '-f', stagedDockerNftPath]);
 
+      const applyFirewall = async () => {
+        await this.runner(this.nftBinary, ['-f', stagedNftPath]);
+        nftChanged = true;
+        if (dockerBatch) {
+          await this.runner(this.nftBinary, ['-f', stagedDockerNftPath]);
+          compatibilityChanged = true;
+        }
+      };
+      if (this.protectBeforeInterface) await applyFirewall();
+
       if (interfaceActive) {
         await this.runner(this.awgBinary, ['syncconf', awgInterface, stagedStrippedPath]);
       } else {
@@ -200,12 +212,7 @@ class RuntimeApplier {
       }
       awgChanged = true;
 
-      await this.runner(this.nftBinary, ['-f', stagedNftPath]);
-      nftChanged = true;
-      if (dockerBatch) {
-        await this.runner(this.nftBinary, ['-f', stagedDockerNftPath]);
-        compatibilityChanged = true;
-      }
+      if (!this.protectBeforeInterface) await applyFirewall();
 
       const persistedConfigPath = path.join(stagingDirectory, 'persisted.conf');
       const persistedPolicyPath = path.join(stagingDirectory, 'persisted.nft');
@@ -220,7 +227,19 @@ class RuntimeApplier {
       return Object.freeze({ interfaceActive: true, tableExisted: existed });
     } catch (error) {
       const rollbackErrors = [...(error.rollbackErrors ?? [])];
-      if (compatibilityChanged) {
+      if (awgChanged) {
+        try {
+          if (interfaceActive) {
+            await this.runner(this.awgBinary, ['syncconf', awgInterface, previousStrippedPath]);
+          } else {
+            if (this.interfaceDriver) await this.interfaceDriver.down(awgInterface);
+            else await this.runner(this.awgQuickBinary, ['down', stagedConfigPath]);
+          }
+        } catch (rollbackError) {
+          rollbackErrors.push(rollbackError);
+        }
+      }
+      if (compatibilityChanged && !rollbackErrors.length) {
         try {
           await this.removeDockerCompatibility(compatibilityMarkers);
         } catch (rollbackError) {
@@ -243,7 +262,7 @@ class RuntimeApplier {
           rollbackErrors.push(rollbackError);
         }
       }
-      if (nftChanged) {
+      if (nftChanged && !rollbackErrors.length) {
         try {
           if (previousPolicy) {
             const rollbackPath = path.join(stagingDirectory, 'rollback.nft');
@@ -260,18 +279,7 @@ class RuntimeApplier {
           rollbackErrors.push(rollbackError);
         }
       }
-      if (awgChanged) {
-        try {
-          if (interfaceActive) {
-            await this.runner(this.awgBinary, ['syncconf', awgInterface, previousStrippedPath]);
-          } else {
-            if (this.interfaceDriver) await this.interfaceDriver.down(awgInterface);
-            else await this.runner(this.awgQuickBinary, ['down', stagedConfigPath]);
-          }
-        } catch (rollbackError) {
-          rollbackErrors.push(rollbackError);
-        }
-      }
+
       error.rollbackErrors = Object.freeze(rollbackErrors);
       throw error;
     } finally {

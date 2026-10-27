@@ -25,14 +25,17 @@ class Application {
     runtimeDirectory,
     backendName = 'amneziawg',
     backend,
+    dualMode = false,
     publicDirectory = path.join(__dirname, '..', 'www'),
     runner = runProcess,
     fileSystem = fs,
-    discoveryFactory = () => new DiscoveryRelay(),
+    discoveryFactory = (options) => new DiscoveryRelay(options),
     httpFactory = (options) => new HttpServer(options),
     geoFactory = (options) => new GeoIpUpdater(options),
   } = {}) {
     this.backend = backend ?? createBackend(backendName, { runner });
+    this.dualMode = dualMode;
+    this.artifactBuilder = options => buildAwgArtifacts({ ...options, isolation: this.dualMode });
     this.dataDirectory = path.resolve(dataDirectory);
     this.runtimeDirectory = path.resolve(runtimeDirectory ?? this.backend.instance.runtimeDirectory);
     this.publicDirectory = path.resolve(publicDirectory);
@@ -46,7 +49,8 @@ class Application {
     this.geo = geoFactory({ directory: path.join(this.dataDirectory, 'geoip'),
       onError: error => console.warn(`GeoIP update: ${error.message}`) });
     this.store = new StateStore(path.join(this.dataDirectory, 'state.json'));
-    this.applier = new RuntimeApplier({ runtimeDirectory: this.runtimeDirectory, runner, ...this.backend.runtimeOptions() });
+    this.applier = new RuntimeApplier({ runtimeDirectory: this.runtimeDirectory, runner, ...this.backend.runtimeOptions(),
+      protectBeforeInterface: dualMode || this.backend.kind === 'wireguard' });
     this.http = null;
     this.http6 = null;
     this.discovery = null;
@@ -76,7 +80,7 @@ class Application {
       uiLanguage,
       interfaceName, ipv4Subnet, serverAddress4, firstClientAddress4, ipv6,
     });
-    const artifacts = buildAwgArtifacts({
+    const artifacts = this.artifactBuilder({
       server: result.state.server,
       clients: result.state.clients,
     });
@@ -121,7 +125,7 @@ class Application {
     if (!this.geo.current && state.clients.some(client => client.geoPolicy && client.geoPolicy.mode !== 'off')) {
       await this.geo.refresh();
     }
-    const artifacts = buildAwgArtifacts({ server: state.server, clients: state.clients,
+    const artifacts = this.artifactBuilder({ server: state.server, clients: state.clients,
       geoDatabase: this.geo.current?.database ?? {} });
     await this.applier.apply({
       serverConfig: artifacts.serverConfig,
@@ -133,15 +137,17 @@ class Application {
     try {
       const passwordManager = new PasswordManager({ store: this.store });
       const sessionManager = new SessionManager({ store: this.store });
-      this.discovery = this.discoveryFactory();
+      this.discovery = this.discoveryFactory({ isolateUnicast: this.dualMode });
       await this.discovery.start(state);
       const clientManager = new ClientManager({
         store: this.store,
         applier: this.applier,
         keyManager: this.backend.keyManager,
+        artifactBuilder: this.artifactBuilder,
         geoDatabase: () => this.geo.current?.database ?? {},
         onStateChanged: (nextState) => this.discovery.refresh(nextState),
       });
+      this.clientManager = clientManager;
       this.geo.install = (snapshot, commit) => clientManager.installGeoSnapshot(snapshot, commit);
       const diagnostics = new ClientDiagnostics({ store: this.store, runner: this.runner, binary: this.backend.binary });
       const api = new ApiService({ store: this.store, passwordManager, sessionManager, clientManager, diagnostics,
@@ -196,7 +202,7 @@ class Application {
       || item.name.trim().toLocaleLowerCase() === folded);
     if (!client) throw new Error(`Unknown client: ${query}`);
     // Exporting keys/routes does not need a country database or firewall build.
-    const artifacts = buildAwgArtifacts({ server: state.server,
+    const artifacts = this.artifactBuilder({ server: state.server,
       clients: state.clients.map(client => ({ ...client, geoPolicy: undefined })) });
     const artifact = artifacts.clientArtifacts[client.id];
     return Object.freeze({ clientName: client.name, vpnLink: artifact.vpnLink,

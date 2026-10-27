@@ -62,3 +62,36 @@ test('ошибка остановки активного интерфейса о
   await assert.rejects(applier.down(), /firewall сохранён/);
   assert(!calls.some(c => c[0] === 'nft'));
 });
+
+test('Dual политика явно закрывает host services и приватный forwarding в обеих IP-версиях', () => {
+  const policy = renderNftablesPolicy({ isolation: true, interfaceName: 'wg0', tableName: 'wg_easy_3',
+    serverAddress4: '10.9.0.1', ipv4Subnet: '10.9.0.0/24', serverAddress6: 'fd42:9::1', ipv6Subnet: 'fd42:9::/64',
+    home4: ['10.9.0.2'], guest4: ['10.9.0.3'], home6: ['fd42:9::2'], guest6: ['fd42:9::3'], panelPort: 51825 });
+  assert.match(policy, /ip daddr 10\.9\.0\.1 tcp dport 51825 accept/);
+  assert.match(policy, /ip6 daddr fd42:9::1 tcp dport 51825 accept/);
+  assert.match(policy, /deny VPN access to other host services/);
+  assert.match(policy, /deny private and host-service forwarding/);
+  assert.match(policy, /deny private IPv6 forwarding/);
+  assert.match(policy, /deny unsolicited VPN ingress/);
+  assert(policy.indexOf('home peer traffic') < policy.indexOf('deny private and host-service forwarding'));
+});
+
+test('защитный firewall применяется до интерфейса и сохраняется при отказе очистки', async t => {
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'dual-order-'));
+  t.after(() => fs.rm(directory, { recursive: true, force: true }));
+  const calls = [];
+  const runner = async (file, args) => {
+    if (args[0] === 'list' || args[0] === '-a') throw Object.assign(new Error('Нет таблицы'), { code: 1 });
+    if (args[0] === 'strip') return { stdout: '[Interface]\nPrivateKey = TEST' };
+    calls.push([file, ...args]); return { stdout: '' };
+  };
+  const driver = { up: async () => {
+    calls.push(['engine-up']);
+    throw Object.assign(new Error('Не удалось запустить WG'), { rollbackErrors: [new Error('Очистка не подтверждена')] });
+  } };
+  const applier = new RuntimeApplier({ runtimeDirectory: directory, tableName: 'wg_easy_3', runner, interfaceDriver: driver, protectBeforeInterface: true });
+  await assert.rejects(applier.apply({ interfaceName: 'wg0', serverConfig: '[Interface]\nPrivateKey = TEST\n', nftables: 'table inet wg_easy_3 {\n}\n' }), /запустить/);
+  const firewall = calls.findIndex(c => c[0] === 'nft' && c[1] === '-f');
+  assert(firewall >= 0 && firewall < calls.findIndex(c => c[0] === 'engine-up'));
+  assert(!calls.some(c => c[0] === 'nft' && c[1] === 'delete'));
+});

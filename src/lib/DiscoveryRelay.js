@@ -23,13 +23,14 @@ const rewriteSsdpLocation = (message, sourceAddress) => {
 };
 
 class DiscoveryRelay {
-  constructor({ socketFactory = dgram.createSocket, clock = () => Date.now(), requesterTtlMs = 15_000 } = {}) {
+  constructor({ socketFactory = dgram.createSocket, clock = () => Date.now(), requesterTtlMs = 15_000, isolateUnicast = false } = {}) {
     if (typeof socketFactory !== 'function' || typeof clock !== 'function') {
       throw new TypeError('socketFactory and clock must be functions');
     }
     this.socketFactory = socketFactory;
     this.clock = clock;
     this.requesterTtlMs = requesterTtlMs;
+    this.isolateUnicast = isolateUnicast;
     this.home4 = new Set();
     this.home6 = new Set();
     this.sockets = [];
@@ -75,7 +76,7 @@ class DiscoveryRelay {
     return [...new Map(targets.map((target) => [`${target.address}:${target.port}`, target])).values()];
   }
 
-  async startService(service, interfaceValue) {
+  async startService(service, interfaceValue, unicast = false) {
     const socket = this.socketFactory({ type: service.family, reuseAddr: true });
     this.sockets.push(socket);
     socket.on('message', (message, rinfo) => {
@@ -89,10 +90,14 @@ class DiscoveryRelay {
     });
     await new Promise((resolve, reject) => {
       socket.once('error', reject);
-      socket.bind(service.port, service.family === 'udp4' ? '0.0.0.0' : '::', () => {
+      socket.bind(service.port, unicast ? interfaceValue : service.family === 'udp4' ? '0.0.0.0' : '::', () => {
         socket.off('error', reject);
         try {
-          socket.addMembership(service.group, interfaceValue);
+          if (!unicast) {
+            socket.setMulticastInterface?.(interfaceValue);
+            socket.setMulticastLoopback?.(false);
+            socket.addMembership(service.group, interfaceValue);
+          }
           resolve();
         } catch (error) {
           reject(error);
@@ -107,6 +112,7 @@ class DiscoveryRelay {
       for (const service of SERVICES) {
         const interfaceValue = service.family === 'udp4' ? state.server.address4 : state.server.interfaceName;
         await this.startService(service, interfaceValue);
+        if (this.isolateUnicast) await this.startService(service, interfaceValue, true);
       }
     } catch (error) {
       await this.stop();
