@@ -1,0 +1,37 @@
+#!/bin/sh
+# Команда доступна из каталога исходников и после установки в /usr/local/sbin.
+set -eu
+base=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+if [ ! -r "$base/lib/vpnctl_manager.py" ]; then
+  [ -r /etc/vpn-easy-dual-install-dir ] || { printf 'Ошибка: каталог установки vpnctl не найден\n' >&2; exit 69; }
+  IFS= read -r base < /etc/vpn-easy-dual-install-dir
+fi
+case "$base" in /*) ;; *) printf 'Ошибка: некорректный каталог установки\n' >&2; exit 65 ;; esac
+action=
+config=/etc/vpn-easy-dual/config.json
+take_config=0
+for argument in "$@"; do
+  if [ "$take_config" -eq 1 ]; then config=$argument; take_config=0; continue; fi
+  case "$argument" in --config) take_config=1 ;; --config=*) config=${argument#--config=} ;; -*) break ;; *) action=$argument; break ;; esac
+done
+if [ "$action" = install ] && [ ! -r "$config" ]; then
+  dry=0; provision=
+  for argument in "$@"; do case "$argument" in --dry-run) dry=1 ;; --yes) provision=--yes ;; esac; done
+  if [ "$dry" -eq 0 ]; then
+    [ "$(id -u)" -eq 0 ] || { printf 'Ошибка: запустите установку через sudo\n' >&2; exit 69; }
+    install -d -m 0755 /run/lock
+    bootstrap_lock=/run/lock/awg-easy-3-update.lock
+    mkdir "$bootstrap_lock" 2>/dev/null || { printf 'Ошибка: другая операция установки или обновления уже выполняется\n' >&2; exit 73; }
+    printf '%s\n' "$$" > "$bootstrap_lock/pid"
+    trap 'if [ -r "$bootstrap_lock/pid" ] && [ "$(cat "$bootstrap_lock/pid")" = "$$" ]; then rm -f "$bootstrap_lock/pid"; rmdir "$bootstrap_lock" 2>/dev/null || true; fi' 0
+    sh "$base/lib/dual-dependencies.sh" "$provision"
+    VPNCTL_BOOTSTRAP_LOCK=$$
+    export VPNCTL_BOOTSTRAP_LOCK
+  fi
+fi
+command -v python3 >/dev/null 2>&1 || { printf 'Ошибка: требуется Python 3; для установки выполните sudo vpnctl install\n' >&2; exit 69; }
+if [ -n "${VPNCTL_BOOTSTRAP_LOCK:-}" ]; then
+  python3 "$base/lib/vpnctl_manager.py" "$@"
+else
+  exec python3 "$base/lib/vpnctl_manager.py" "$@"
+fi

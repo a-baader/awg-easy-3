@@ -61,6 +61,11 @@ class ApiService {
   }
 
   async login(password, { secureCookie = false } = {}) {
+    const operation = () => this.loginLocked(password, { secureCookie });
+    return typeof this.store.serialize === 'function' ? this.store.serialize(operation) : operation();
+  }
+
+  async loginLocked(password, { secureCookie = false } = {}) {
     if (!(await this.passwordManager.verify(password))) throw new ApiError(401, 'Invalid credentials');
     const token = await this.sessionManager.create();
     return Object.freeze({

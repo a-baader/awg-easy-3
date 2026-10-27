@@ -160,6 +160,13 @@ class StateStore {
       throw new TypeError('State file path is required');
     }
     this.filePath = path.resolve(filePath);
+    this.queue = Promise.resolve();
+  }
+
+  serialize(operation) {
+    const result = this.queue.then(operation, operation);
+    this.queue = result.catch(() => {});
+    return result;
   }
 
   async load() {

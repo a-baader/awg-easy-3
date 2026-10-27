@@ -18,6 +18,7 @@ const { SessionManager } = require('./SessionManager');
 const { StateStore } = require('./StateStore');
 const { createBackend } = require('./VpnBackend');
 const { NetworkDetector } = require('./NetworkDetector');
+const { LocalControl } = require('./LocalControl');
 
 class Application {
   constructor({
@@ -26,6 +27,8 @@ class Application {
     backendName = 'amneziawg',
     backend,
     dualMode = false,
+    controlEnabled = false,
+    maintenance = false,
     publicDirectory = path.join(__dirname, '..', 'www'),
     runner = runProcess,
     fileSystem = fs,
@@ -35,6 +38,9 @@ class Application {
   } = {}) {
     this.backend = backend ?? createBackend(backendName, { runner });
     this.dualMode = dualMode;
+    this.controlEnabled = controlEnabled;
+    this.maintenance = maintenance;
+    this.control = null;
     this.artifactBuilder = options => buildAwgArtifacts({ ...options, isolation: this.dualMode });
     this.dataDirectory = path.resolve(dataDirectory);
     this.runtimeDirectory = path.resolve(runtimeDirectory ?? this.backend.instance.runtimeDirectory);
@@ -135,7 +141,7 @@ class Application {
     });
     this.state = state;
     try {
-      const passwordManager = new PasswordManager({ store: this.store });
+      const passwordManager = new PasswordManager({ store: this.store, isReadOnly: () => this.maintenance });
       const sessionManager = new SessionManager({ store: this.store });
       this.discovery = this.discoveryFactory({ isolateUnicast: this.dualMode });
       await this.discovery.start(state);
@@ -144,6 +150,7 @@ class Application {
         applier: this.applier,
         keyManager: this.backend.keyManager,
         artifactBuilder: this.artifactBuilder,
+        isReadOnly: () => this.maintenance,
         geoDatabase: () => this.geo.current?.database ?? {},
         onStateChanged: (nextState) => this.discovery.refresh(nextState),
       });
@@ -157,6 +164,12 @@ class Application {
       if (state.server.address6 && state.server.ipv6Subnet) {
         this.http6 = this.httpFactory({ api, publicDirectory: this.publicDirectory });
         await this.http6.listen({ host: state.server.address6, port: state.server.panelPort });
+      }
+      if (this.controlEnabled) {
+        this.control = new LocalControl({ socketPath: path.join(this.runtimeDirectory, 'control.sock'),
+          store: this.store, clientManager, passwordManager, backend: this.backend, diagnostics,
+          setMaintenance: value => this.store.serialize(() => { this.maintenance = value; }) });
+        await this.control.start();
       }
       this.geo.start();
       return listening;
@@ -174,6 +187,8 @@ class Application {
 
   async stop() {
     const errors = [];
+    if (this.control) await this.control.close().catch(error => errors.push(error));
+    this.control = null;
     await this.geo.stop().catch(error => errors.push(error));
     if (this.http) await this.http.close().catch((error) => errors.push(error));
     if (this.http6) await this.http6.close().catch((error) => errors.push(error));
@@ -189,7 +204,7 @@ class Application {
   }
 
   async resetPassword(password) {
-    return new PasswordManager({ store: this.store }).resetPassword(password);
+    return new PasswordManager({ store: this.store, isReadOnly: () => this.maintenance }).resetPassword(password);
   }
 
   async exportClient(selector) {

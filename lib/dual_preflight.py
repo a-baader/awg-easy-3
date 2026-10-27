@@ -114,7 +114,8 @@ def inspect_conflicts(instances, *, owned=None, run=execute):
         proof = owned.get(name)
         if proof and (proof.get('container') != item['container'] or proof.get('data_directory') != item['data_directory']):
             raise PreflightError('Не подтверждено владение существующей установкой')
-        if item['interface'] in names and not proof:
+        owns_interface=bool(proof and proof.get('interface')==item['interface'])
+        if item['interface'] in names and not owns_interface:
             raise PreflightError('VPN-интерфейс уже занят: ' + item['interface'])
         if ('inet', item['table']) in existing_tables and not proof:
             raise PreflightError('Таблица firewall уже занята: ' + item['table'])
@@ -136,13 +137,14 @@ def inspect_conflicts(instances, *, owned=None, run=execute):
                     other = ipaddress.ip_network(destination, strict=False)
                 except ValueError:
                     raise PreflightError('Не удалось проверить существующий маршрут') from None
-                if proof and route.get('dev') == item['interface'] and other.subnet_of(own_network):
+                if owns_interface and route.get('dev') == item['interface'] and other.subnet_of(own_network):
                     continue
                 if own_network.overlaps(other):
                     raise PreflightError('VPN-подсеть пересекается с маршрутом: ' + subnet)
         for protocol, port in [('udp', item['udp_port']), ('tcp', item['panel_port'])]:
             flags = '-Hlun' if protocol == 'udp' else '-Hltn'
             occupied = run(['ss', flags, 'sport = :' + str(port)]).strip()
-            if occupied and not proof:
+            owns_port=proof and proof.get('udp_port' if protocol=='udp' else 'panel_port')==port
+            if occupied and not owns_port:
                 raise PreflightError('Порт уже занят: ' + str(port) + '/' + protocol)
     return {'conflicts': False, 'components': list(instances)}

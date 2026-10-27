@@ -24,6 +24,7 @@ class PasswordManager {
     compare = defaultCompare,
     passwordGenerator = generatePassword,
     randomBytes = crypto.randomBytes,
+    isReadOnly = () => false,
   } = {}) {
     if (!store || typeof store.load !== 'function' || typeof store.save !== 'function') {
       throw new TypeError('store must provide load and save methods');
@@ -36,6 +37,7 @@ class PasswordManager {
     this.compare = compare;
     this.passwordGenerator = passwordGenerator;
     this.randomBytes = randomBytes;
+    this.isReadOnly = isReadOnly;
   }
 
   async requireState() {
@@ -61,6 +63,18 @@ class PasswordManager {
   }
 
   async changePassword(currentPassword, newPassword) {
+    return this.mutate(() => this.changePasswordLocked(currentPassword, newPassword));
+  }
+
+  mutate(operation) {
+    const guarded = () => {
+      if (this.isReadOnly()) throw Object.assign(new Error('Панель обслуживается; изменения временно недоступны'), { statusCode: 503, code: 'MAINTENANCE' });
+      return operation();
+    };
+    return typeof this.store.serialize === 'function' ? this.store.serialize(guarded) : guarded();
+  }
+
+  async changePasswordLocked(currentPassword, newPassword) {
     const state = await this.requireState();
     if (typeof currentPassword !== 'string'
       || !(await this.compare(currentPassword, state.auth.passwordHash))) {
@@ -70,9 +84,11 @@ class PasswordManager {
   }
 
   async resetPassword(newPassword = this.passwordGenerator()) {
-    const state = await this.requireState();
-    await this.replacePassword(state, newPassword);
-    return newPassword;
+    return this.mutate(async () => {
+      const state = await this.requireState();
+      await this.replacePassword(state, newPassword);
+      return newPassword;
+    });
   }
 }
 

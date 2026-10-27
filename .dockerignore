@@ -4,3 +4,13 @@
 /data
 node_modules
 *.log
+.env
+.env.*
+/data-wg
+/backups
+/.vpnctl
+/bootstrap
+*.key
+*.bundle
+__pycache__
+*.pyc

@@ -83,7 +83,7 @@
       throw error;
     }
   };
-  const errorMessage = (error) => ['CURRENT_PANEL_PATH', 'LAST_HOME', 'IPV6_UNAVAILABLE'].includes(error.code)
+  const errorMessage = (error) => ['CURRENT_PANEL_PATH', 'LAST_HOME', 'IPV6_UNAVAILABLE', 'GEO_UNAVAILABLE', 'MAINTENANCE'].includes(error.code)
     ? t(error.code) : error.message;
   const showManualLink = (link) => {
     const field = $('#profile-link');

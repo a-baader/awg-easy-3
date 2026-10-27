@@ -102,6 +102,7 @@ class BootstrapInstaller {
       ...serverKeys,
       address4: serverAddress4,
       ipv4Subnet,
+      ...(Number(ipv4Subnet.split('/')[1]) !== 24 ? { ipv4Prefix: Number(ipv4Subnet.split('/')[1]) } : {}),
       listenPort,
       panelPort,
       uiLanguage,

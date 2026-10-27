@@ -21,6 +21,7 @@ class ClientManager {
     idGenerator = crypto.randomUUID,
     onStateChanged = () => {},
     geoDatabase = () => ({}),
+    isReadOnly = () => false,
   } = {}) {
     if (!store || typeof store.load !== 'function' || typeof store.save !== 'function') {
       throw new TypeError('store must provide load and save methods');
@@ -40,11 +41,17 @@ class ClientManager {
     this.idGenerator = idGenerator;
     this.onStateChanged = onStateChanged;
     this.geoDatabase = geoDatabase;
+    this.isReadOnly = isReadOnly;
     this.queue = Promise.resolve();
   }
 
   serialize(operation) {
-    const result = this.queue.then(operation, operation);
+    const guarded = () => {
+      if (this.isReadOnly()) throw Object.assign(new Error('Панель обслуживается; изменения временно недоступны'), { statusCode: 503, code: 'MAINTENANCE' });
+      return operation();
+    };
+    if (typeof this.store.serialize === 'function') return this.store.serialize(guarded);
+    const result = this.queue.then(guarded, guarded);
     this.queue = result.catch(() => {});
     return result;
   }

@@ -212,7 +212,7 @@ class HttpServer {
         ?? (error instanceof TypeError || error instanceof RangeError ? 400 : 500);
       return sendJson(response, statusCode, {
         error: statusCode === 500 ? 'Internal server error' : error.message,
-          ...(statusCode !== 500 && ['CURRENT_PANEL_PATH', 'LAST_HOME', 'IPV6_UNAVAILABLE', 'GEO_UNAVAILABLE'].includes(error.code)
+          ...(statusCode !== 500 && ['CURRENT_PANEL_PATH', 'LAST_HOME', 'IPV6_UNAVAILABLE', 'GEO_UNAVAILABLE', 'MAINTENANCE'].includes(error.code)
           ? { code: error.code } : {}),
       });
     }

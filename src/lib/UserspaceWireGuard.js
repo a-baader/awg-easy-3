@@ -8,7 +8,10 @@ const pause = ms => new Promise(resolve => setTimeout(resolve, ms));
 
 // Официальный engine запускается напрямую: наличие kernel-модуля не меняет backend.
 class UserspaceWireGuard {
-  constructor({ runner = runProcess, spawnProcess = spawn, wait = pause } = {}) {
+  constructor({ runner = runProcess, spawnProcess = spawn, wait = pause, binary = 'wg', engine = 'wireguard-go' } = {}) {
+    if (![['wg', 'wireguard-go'], ['awg', 'amneziawg-go']].some(pair => pair[0] === binary && pair[1] === engine)) throw new TypeError('Несовместимая пара VPN tools и engine');
+    this.binary = binary;
+    this.engine = engine;
     this.runner = runner;
     this.spawnProcess = spawnProcess;
     this.wait = wait;
@@ -32,7 +35,7 @@ class UserspaceWireGuard {
       await this.runner('ip', ['link', 'show', 'dev', interfaceName]);
       throw new Error('WireGuard-интерфейс уже занят; чужой интерфейс не изменён');
     } catch (error) { if ((error.code ?? error.exitCode) !== 1) throw error; }
-    const child = this.spawnProcess('wireguard-go', ['--foreground', interfaceName], {
+    const child = this.spawnProcess(this.engine, ['--foreground', interfaceName], {
       env: { ...process.env, LOG_LEVEL: 'error' }, stdio: ['ignore', 'ignore', 'pipe'],
     });
     this.child = child;
@@ -46,12 +49,12 @@ class UserspaceWireGuard {
       let ready = false;
       for (let i = 0; i < 100; i++) {
         if (failure) throw failure;
-        try { await this.runner('wg', ['show', interfaceName]); ready = true; break; }
+        try { await this.runner(this.binary, ['show', interfaceName]); ready = true; break; }
         catch (error) { if ((error.code ?? error.exitCode) !== 1) throw error; }
         await this.wait(25);
       }
       if (!ready) throw new Error('Userspace WireGuard не создал интерфейс вовремя');
-      await this.runner('wg', ['setconf', interfaceName, strippedConfigPath]);
+      await this.runner(this.binary, ['setconf', interfaceName, strippedConfigPath]);
       for (const address of addresses) {
         await this.runner('ip', [address.includes(':') ? '-6' : '-4', 'address', 'add', address, 'dev', interfaceName]);
       }
@@ -66,7 +69,7 @@ class UserspaceWireGuard {
   async down(interfaceName) {
     if (!this.child || this.interfaceName !== interfaceName) throw new Error('Нет принадлежащего приложению процесса WireGuard');
     const child = this.child;
-    if (child.exitCode === null && child.signalCode === null) {
+    if (child.pid && child.exitCode === null && child.signalCode === null) {
       child.kill('SIGTERM');
       for (let i = 0; i < 100 && child.exitCode === null && child.signalCode === null; i++) await this.wait(25);
       if (child.exitCode === null && child.signalCode === null) throw new Error('Процесс WireGuard не остановлен; firewall сохранён');

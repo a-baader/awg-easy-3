@@ -1,11 +1,14 @@
 'use strict';
 
 const { Application } = require('./lib/Application');
+const { safeMessage } = require('./lib/SafeLog');
 
 const command = process.argv[2] ?? 'serve';
 const application = new Application({
   backendName: process.env.VPN_BACKEND ?? 'amneziawg',
   dualMode: process.env.VPN_DUAL_MODE === '1',
+  controlEnabled: true,
+  maintenance: process.env.VPN_MAINTENANCE === '1',
   dataDirectory: process.env.VPN_DATA_DIR ?? process.env.AWG_EASY_DATA_DIR ?? '/data',
   runtimeDirectory: process.env.VPN_RUNTIME_DIR ?? process.env.AWG_EASY_RUNTIME_DIR,
 });
@@ -28,6 +31,20 @@ const printBootstrap = async (result) => {
 };
 
 const main = async () => {
+  if (command === 'init-json') {
+    process.stdin.setEncoding('utf8');
+    let input = '';
+    for await (const chunk of process.stdin) {
+      input += chunk;
+      if (Buffer.byteLength(input) > 16384) throw new Error('Слишком большой запрос инициализации');
+    }
+    const options = JSON.parse(input);
+    const allowed = new Set(['endpointHost', 'wanInterface', 'firstClientName', 'listenPort', 'panelPort', 'uiLanguage', 'interfaceName', 'ipv4Subnet', 'serverAddress4', 'firstClientAddress4', 'ipv6']);
+    if (!options || typeof options !== 'object' || Array.isArray(options) || Object.keys(options).some(key => !allowed.has(key))) throw new Error('Некорректные параметры инициализации');
+    await application.backend.validateEnvironment();
+    process.stdout.write(JSON.stringify(await application.initialize(options)) + '\n');
+    return;
+  }
   if (command === 'init') {
     await application.backend.validateEnvironment();
     return printBootstrap(await application.initialize({
@@ -67,14 +84,14 @@ const main = async () => {
     await application.stop();
   };
   process.once('SIGTERM', () => stop().then(() => process.exit(0)).catch((error) => {
-    console.error(error); process.exit(1);
+    console.error('[' + application.backend.kind + '] ' + safeMessage(error)); process.exit(1);
   }));
   process.once('SIGINT', () => stop().then(() => process.exit(0)).catch((error) => {
-    console.error(error); process.exit(1);
+    console.error('[' + application.backend.kind + '] ' + safeMessage(error)); process.exit(1);
   }));
 };
 
 main().catch((error) => {
-  console.error(error.message);
+  console.error('[' + application.backend.kind + '] ' + safeMessage(error));
   process.exitCode = 1;
 });

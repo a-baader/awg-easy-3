@@ -17,8 +17,9 @@ const run = async (settings) => {
   };
   await vm.runInNewContext(cli, {
     require: (name) => {
+      if (name === './lib/SafeLog') return require('../lib/SafeLog');
       assert.equal(name, './lib/Application');
-      return { Application: class { settings() { return settings(); } } };
+      return { Application: class { constructor() { this.backend = { kind: 'amneziawg' }; } settings() { return settings(); } } };
     },
     process: processStub, console: { error: (value) => { error += value; } },
   });
@@ -34,7 +35,7 @@ test('CLI settings uses persisted values instead of container initialization env
 
 test('CLI settings explains unavailable state and exits unsuccessfully', async () => {
   const result = await run(async () => { throw new Error('AWG-Easy 3 is not initialized'); });
-  assert.deepEqual(result, { output: '', error: 'AWG-Easy 3 is not initialized', code: 1 });
+  assert.deepEqual(result, { output: '', error: '[amneziawg] AWG-Easy 3 is not initialized', code: 1 });
 });
 
 test('manager settings reads a one-shot container without starting the VPN', () => {

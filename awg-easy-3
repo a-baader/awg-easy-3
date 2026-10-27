@@ -4,6 +4,24 @@ set -eu
 die() { printf 'Error: %s\n' "$*" >&2; exit 1; }
 [ "$(id -u)" -eq 0 ] || die "run this command as root: sudo awg-easy-3"
 
+# После миграции все изменения проходят через единую блокировку vpnctl.
+if [ -r /etc/vpn-easy-dual/config.json ] && command -v vpnctl >/dev/null 2>&1; then
+  action=${1:-menu}
+  case "$action" in
+    menu) exec vpnctl ;;
+    start|stop|restart|status|settings|logs|diagnose|update|uninstall) exec vpnctl "$action" awg ;;
+    --uninstall) exec vpnctl uninstall awg ;;
+    export-client) [ "$#" -ge 2 ] || die 'укажите имя клиента'; exec vpnctl client export --component awg --name "$2" --format vpn-url ;;
+    reset-password)
+      [ "$#" -eq 1 ] || die 'передавайте пароль через vpnctl reset-password --component awg --password-stdin'
+      exec vpnctl reset-password --component awg ;;
+    auto-update) die 'Dual использует единое ручное обновление vpnctl; legacy updater отключён' ;;
+    reinstall|--reinstall) die 'для чистой переустановки используйте vpnctl uninstall awg, затем установку после проверки backup' ;;
+    help|-h|--help) exec vpnctl help ;;
+    *) die 'неизвестная команда AWG; используйте vpnctl help' ;;
+  esac
+fi
+
 location_file=/etc/awg-easy-3-install-dir
 [ -r "$location_file" ] || die "installation location is unavailable"
 IFS= read -r project_dir < "$location_file"
