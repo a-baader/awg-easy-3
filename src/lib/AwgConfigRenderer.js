@@ -60,7 +60,9 @@ const renderServerPeer = (peer, index) => {
   return lines.join('\n');
 };
 
-const renderServerConfig = ({ privateKey, addresses, listenPort, profile, peers = [] }) => {
+const renderServerConfig = ({ privateKey, addresses, listenPort, profile, peers = [], protocol = 'amneziawg' }) => {
+  if (!['amneziawg', 'wireguard'].includes(protocol)) throw new TypeError('Неизвестный протокол конфигурации');
+  if (protocol === 'wireguard' && profile !== undefined) throw new TypeError('Параметры AWG запрещены для WireGuard');
   if (!Array.isArray(peers)) throw new TypeError('peers must be an array');
   const sections = [
     [
@@ -68,7 +70,7 @@ const renderServerConfig = ({ privateKey, addresses, listenPort, profile, peers 
       `PrivateKey = ${lineValue(privateKey, 'privateKey')}`,
       `Address = ${cidrList(addresses, 'addresses').join(', ')}`,
       `ListenPort = ${portValue(listenPort, 'listenPort')}`,
-      renderInterfaceFields(profile),
+      ...(protocol === 'wireguard' ? [] : [renderInterfaceFields(profile)]),
     ].join('\n'),
     ...peers.map(renderServerPeer),
   ];
@@ -87,12 +89,18 @@ const renderClientConfig = ({
   persistentKeepalive = '25-35',
   endpointHost,
   endpointPort,
+  protocol = 'amneziawg',
 }) => {
+  if (!['amneziawg', 'wireguard'].includes(protocol)) throw new TypeError('Неизвестный протокол конфигурации');
+  if (protocol === 'wireguard' && profile !== undefined) throw new TypeError('Параметры AWG запрещены для WireGuard');
   const normalizedMtu = Number(mtu);
   if (!Number.isInteger(normalizedMtu) || normalizedMtu < 576 || normalizedMtu > 9_000) {
     throw new TypeError('mtu must be an integer between 576 and 9000');
   }
   const keepalive = String(persistentKeepalive);
+  if (protocol === 'wireguard' && (!/^\d+$/.test(keepalive) || Number(keepalive) > 65535)) {
+    throw new TypeError('WireGuard требует числовой PersistentKeepalive от 0 до 65535');
+  }
   if (!/^\d+(?:-\d+)?$/.test(keepalive)) {
     throw new TypeError('persistentKeepalive must be an integer or range');
   }
@@ -103,7 +111,7 @@ const renderClientConfig = ({
     `Address = ${cidrList(addresses, 'addresses').join(', ')}`,
     renderDnsLine(dnsPolicy),
     `MTU = ${normalizedMtu}`,
-    renderInterfaceFields(profile),
+    ...(protocol === 'wireguard' ? [] : [renderInterfaceFields(profile)]),
     '',
     '[Peer]',
     `PublicKey = ${lineValue(serverPublicKey, 'serverPublicKey')}`,

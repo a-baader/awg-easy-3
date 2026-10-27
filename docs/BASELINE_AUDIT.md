@@ -111,3 +111,14 @@ Docker 29.1.3; host Node 18.19.1. Compose plugin и pnpm на host отсутс�
 ## Решение по переходу
 
 Аудит и полный baseline завершены. Пользователь разрешил продолжить диагностику среды; baseline прошёл без изменения тестов. Этап 1: InstanceConfig и изоляция ownership RuntimeApplier/NftablesPolicy; **242/242** теста прошли. Запуск двух контейнеров, WG backend и финальная приёмка относятся к следующим этапам.
+
+## Этап 2
+
+Добавлены VpnBackend/UserspaceWireGuard, отдельная схема WG v3, общие
+ClientManager/Bootstrap/диагностика с выбором backend. AWG остаётся v1/v2.
+Собраны локальные target awg и wg. Полный набор: **246/246**. Проверен реальный
+Linux WG client → server handshake и HTTP к своей панели, TUN/userspace и
+healthcheck. Версия amneziawg-go --version содержит старый snapshot 0.0.20250522;
+это не показатель поколения протокола. AWG tools проверены на наличие полей
+header protection, content padding, random trailers и disable cookies; точный
+Go commit берётся из сборки. Полный Dual firewall/полевой Windows ещё не проверен.

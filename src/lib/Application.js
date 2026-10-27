@@ -16,11 +16,15 @@ const { runProcess } = require('./ProcessRunner');
 const { RuntimeApplier } = require('./RuntimeApplier');
 const { SessionManager } = require('./SessionManager');
 const { StateStore } = require('./StateStore');
+const { createBackend } = require('./VpnBackend');
+const { NetworkDetector } = require('./NetworkDetector');
 
 class Application {
   constructor({
     dataDirectory = '/data',
-    runtimeDirectory = '/run/awg-easy-3',
+    runtimeDirectory,
+    backendName = 'amneziawg',
+    backend,
     publicDirectory = path.join(__dirname, '..', 'www'),
     runner = runProcess,
     fileSystem = fs,
@@ -28,8 +32,9 @@ class Application {
     httpFactory = (options) => new HttpServer(options),
     geoFactory = (options) => new GeoIpUpdater(options),
   } = {}) {
+    this.backend = backend ?? createBackend(backendName, { runner });
     this.dataDirectory = path.resolve(dataDirectory);
-    this.runtimeDirectory = path.resolve(runtimeDirectory);
+    this.runtimeDirectory = path.resolve(runtimeDirectory ?? this.backend.instance.runtimeDirectory);
     this.publicDirectory = path.resolve(publicDirectory);
     this.runner = runner;
     this.fs = fileSystem;
@@ -41,7 +46,7 @@ class Application {
     this.geo = geoFactory({ directory: path.join(this.dataDirectory, 'geoip'),
       onError: error => console.warn(`GeoIP update: ${error.message}`) });
     this.store = new StateStore(path.join(this.dataDirectory, 'state.json'));
-    this.applier = new RuntimeApplier({ runtimeDirectory: this.runtimeDirectory, runner });
+    this.applier = new RuntimeApplier({ runtimeDirectory: this.runtimeDirectory, runner, ...this.backend.runtimeOptions() });
     this.http = null;
     this.http6 = null;
     this.discovery = null;
@@ -52,17 +57,24 @@ class Application {
     endpointHost,
     wanInterface,
     firstClientName = 'Home admin',
-    listenPort = 51820,
-    panelPort = 51821,
+    listenPort = this.backend.instance.listenPort,
+    panelPort = this.backend.instance.panelPort,
     uiLanguage = 'en',
+    interfaceName,
+    ipv4Subnet,
+    serverAddress4,
+    firstClientAddress4,
+    ipv6,
   } = {}) {
-    const result = await new BootstrapInstaller({ store: this.store }).install({
+    const result = await new BootstrapInstaller({ store: this.store, backend: this.backend,
+      networkDetector: new NetworkDetector({ runner: this.runner }) }).install({
       endpointHost,
       wanInterface,
       firstClientName,
       listenPort,
       panelPort,
       uiLanguage,
+      interfaceName, ipv4Subnet, serverAddress4, firstClientAddress4, ipv6,
     });
     const artifacts = buildAwgArtifacts({
       server: result.state.server,
@@ -90,7 +102,7 @@ class Application {
 
   async interfaceActive(interfaceName) {
     try {
-      await this.runner('awg', ['show', interfaceName]);
+      await this.runner(this.backend.binary, ['show', interfaceName]);
       return true;
     } catch (error) {
       if (error && (error.code === 1 || error.exitCode === 1)) return false;
@@ -101,6 +113,7 @@ class Application {
   async start() {
     const state = await this.store.load();
     if (!state) throw new Error('AWG-Easy 3 is not initialized; run the init command first');
+    this.backend.assertState(state);
     // A reused Application must not call a previous runtime's installer before
     // its new interface exists. Startup may persist data, but cannot apply rules yet.
     this.geo.install = async (snapshot, commit) => commit();
@@ -125,11 +138,12 @@ class Application {
       const clientManager = new ClientManager({
         store: this.store,
         applier: this.applier,
+        keyManager: this.backend.keyManager,
         geoDatabase: () => this.geo.current?.database ?? {},
         onStateChanged: (nextState) => this.discovery.refresh(nextState),
       });
       this.geo.install = (snapshot, commit) => clientManager.installGeoSnapshot(snapshot, commit);
-      const diagnostics = new ClientDiagnostics({ store: this.store, runner: this.runner });
+      const diagnostics = new ClientDiagnostics({ store: this.store, runner: this.runner, binary: this.backend.binary });
       const api = new ApiService({ store: this.store, passwordManager, sessionManager, clientManager, diagnostics,
         geoStatus: () => ({ ...this.geo.status, countries: this.geo.current?.countries ?? [] }) });
       this.http = this.httpFactory({ api, publicDirectory: this.publicDirectory });
@@ -184,7 +198,9 @@ class Application {
     // Exporting keys/routes does not need a country database or firewall build.
     const artifacts = buildAwgArtifacts({ server: state.server,
       clients: state.clients.map(client => ({ ...client, geoPolicy: undefined })) });
-    return Object.freeze({ clientName: client.name, vpnLink: artifacts.clientArtifacts[client.id].vpnLink });
+    const artifact = artifacts.clientArtifacts[client.id];
+    return Object.freeze({ clientName: client.name, vpnLink: artifact.vpnLink,
+      ...(this.backend.kind === 'wireguard' ? { nativeConfig: artifact.nativeConfig } : {}) });
   }
 
 }

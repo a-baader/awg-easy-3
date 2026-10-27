@@ -35,13 +35,15 @@ const parseAwgDump = (output) => {
 };
 
 class ClientDiagnostics {
-  constructor({ store, runner = runProcess, now = () => Date.now(), monotonicNow = () => performance.now() } = {}) {
+  constructor({ store, runner = runProcess, binary = 'awg', now = () => Date.now(), monotonicNow = () => performance.now() } = {}) {
     if (!store || typeof store.load !== 'function') throw new TypeError('store must provide load');
     if ([runner, now, monotonicNow].some((value) => typeof value !== 'function')) {
       throw new TypeError('runner and clocks must be functions');
     }
     this.store = store;
     this.runner = runner;
+    if (!['awg', 'wg'].includes(binary)) throw new TypeError('Неизвестный инструмент диагностики VPN');
+    this.binary = binary;
     this.now = now;
     this.monotonicNow = monotonicNow;
     this.previous = new Map();
@@ -71,7 +73,7 @@ class ClientDiagnostics {
     if (this.cached?.stateKey === stateKey && cacheAge >= 0 && cacheAge < MIN_SAMPLE_INTERVAL_MS) {
       return this.cached.result;
     }
-    const dump = parseAwgDump((await this.runner('awg', ['show', state.server.interfaceName, 'dump'], { timeoutMs: 5000 })).stdout);
+    const dump = parseAwgDump((await this.runner(this.binary, ['show', state.server.interfaceName, 'dump'], { timeoutMs: 5000 })).stdout);
     // Stamp the completed read; time spent waiting for AWG is part of the interval.
     const measuredAt = this.now();
     const sampleTime = this.monotonicNow();

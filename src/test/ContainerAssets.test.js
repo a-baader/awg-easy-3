@@ -10,8 +10,8 @@ const root = path.join(__dirname, '..', '..');
 test('pins amd64 base images and official AWG source revisions', () => {
   const dockerfile = fs.readFileSync(path.join(root, 'Dockerfile'), 'utf8');
   const compose = fs.readFileSync(path.join(root, 'docker-compose.yml'), 'utf8');
-  assert.equal((dockerfile.match(/FROM --platform=linux\/amd64/g) || []).length, 4);
-  assert.equal((dockerfile.match(/@sha256:[a-f0-9]{64}/g) || []).length, 4);
+  assert.equal((dockerfile.match(/FROM --platform=linux\/amd64/g) || []).length, 6);
+  assert.equal((dockerfile.match(/@sha256:[a-f0-9]{64}/g) || []).length, 6);
   assert.match(dockerfile, /AWG_GO_COMMIT=b5928efb6ca19f0153958460c3d141f04abc5c2e/);
   assert.match(dockerfile, /AWG_TOOLS_COMMIT=ee0f0a9aa34ff0a0da4b3433b9512781cfe02843/);
   assert.doesNotMatch(dockerfile, /:latest/);
@@ -20,7 +20,14 @@ test('pins amd64 base images and official AWG source revisions', () => {
   assert.match(compose, /AWG_LANG: \$\{AWG_LANG:-en\}/);
   const version = fs.readFileSync(path.join(root, 'VERSION'), 'utf8').trim();
   assert.ok(compose.includes(`ghcr.io/alexsemenovru/awg-easy-3:${version}`));
-  assert.match(dockerfile, /\$\{AWG_PANEL_PORT\}/);
+  assert.match(dockerfile, /"node", "\/app\/healthcheck.js"/);
+  const health = fs.readFileSync(path.join(root, 'src', 'healthcheck.js'), 'utf8');
+  assert.match(health, /state.server.address4/);
+  assert.match(health, /backend.binary/);
+  assert.doesNotMatch(health, /10\.8\.0\.1|awg0/);
+  const wgTarget = dockerfile.split('AS wg\n')[1].split('FROM runtime-common AS awg')[0];
+  assert.match(wgTarget, /VPN_BACKEND=wireguard/);
+  assert.doesNotMatch(wgTarget, /amneziawg|ln -s/);
   assert.doesNotMatch(compose, /SYS_MODULE|ports:/);
 });
 

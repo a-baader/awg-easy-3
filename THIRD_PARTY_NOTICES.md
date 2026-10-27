@@ -8,7 +8,7 @@ copyright notices and license terms; inclusion does not relicense them.
 
 | Component | Pinned revision | License | Source |
 | --- | --- | --- | --- |
-| AmneziaWG Go | `1b86b2ae0e493e7ea93f8c1a0f0cb6735b1551f1` | MIT | [amnezia-vpn/amneziawg-go](https://github.com/amnezia-vpn/amneziawg-go) |
+| AmneziaWG Go | `b5928efb6ca19f0153958460c3d141f04abc5c2e` | MIT | [amnezia-vpn/amneziawg-go](https://github.com/amnezia-vpn/amneziawg-go) |
 | AmneziaWG Tools | `ee0f0a9aa34ff0a0da4b3433b9512781cfe02843` | GPL-2.0 | [amnezia-vpn/amneziawg-tools](https://github.com/amnezia-vpn/amneziawg-tools) |
 
 The container build compiles these exact revisions. Their license files and
@@ -36,3 +36,15 @@ installed from Alpine retain the licenses published with their corresponding
 Alpine package sources. The resulting image must be redistributed in
 accordance with those package licenses as well as the licenses listed above.
 
+
+## Официальные компоненты WireGuard (образ wg)
+
+| Компонент | Закреплённая ревизия | Лицензия | Исходники |
+| --- | --- | --- | --- |
+| wireguard-go 0.0.20250522 | `f333402bd9cbe0f3eeb02507bd14e23d7d639280` | MIT | https://git.zx2c4.com/wireguard-go/ |
+| wireguard-tools 1.0.20250521 | `e2ecaaa739144997ccff89d6ad6ec81698ea6ced` | GPL-2.0 | https://git.zx2c4.com/wireguard-tools/ |
+
+В образ WG копируются оригинальные LICENSE/COPYING. Протокол и исходники этих
+компонентов не изменяются. Их точные исходники доступны по указанным commit.
+Изменения VPN Easy Dual основаны на alexsemenovru/awg-easy-3 v0.1.6;
+атрибуция исходного проекта и условия CC BY-NC-SA 4.0 сохраняются.

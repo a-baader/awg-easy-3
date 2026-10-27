@@ -37,6 +37,7 @@ class RuntimeApplier {
     awgQuickBinary = 'awg-quick',
     nftBinary = 'nft',
     tableName = TABLE_NAME,
+    interfaceDriver,
   } = {}) {
     if (typeof runner !== 'function') throw new TypeError('runner must be a function');
     if (!fileSystem || typeof fileSystem.writeFile !== 'function') {
@@ -49,6 +50,7 @@ class RuntimeApplier {
     this.awgQuickBinary = awgQuickBinary;
     this.nftBinary = nftBinary;
     this.tableName = validateOwnedTable(tableName);
+    this.interfaceDriver = interfaceDriver;
     this.compatibilityRules = DOCKER_COMPATIBILITY.map(rule => ({ ...rule,
       marker: rule.marker.replace('awg_easy_3', this.tableName) }));
   }
@@ -135,6 +137,9 @@ class RuntimeApplier {
 
   async apply({ serverConfig, nftables, interfaceName = 'awg0', interfaceActive = false }) {
     const awgInterface = validateInterface(interfaceName);
+    if (interfaceActive && this.interfaceDriver && this.interfaceDriver.interfaceName !== awgInterface) {
+      throw new Error('Запрещено изменять WireGuard-интерфейс без принадлежащего приложению процесса');
+    }
     const config = requireManagedText(serverConfig, '[Interface]', 'serverConfig');
     const policy = requireManagedText(nftables, `table inet ${this.tableName} {`, 'nftables');
     if (typeof interfaceActive !== 'boolean') throw new TypeError('interfaceActive must be a boolean');
@@ -189,7 +194,9 @@ class RuntimeApplier {
       if (interfaceActive) {
         await this.runner(this.awgBinary, ['syncconf', awgInterface, stagedStrippedPath]);
       } else {
-        await this.runner(this.awgQuickBinary, ['up', stagedConfigPath]);
+        if (this.interfaceDriver) {
+          await this.interfaceDriver.up({ interfaceName: awgInterface, serverConfig: config, strippedConfigPath: stagedStrippedPath });
+        } else await this.runner(this.awgQuickBinary, ['up', stagedConfigPath]);
       }
       awgChanged = true;
 
@@ -212,7 +219,7 @@ class RuntimeApplier {
       await this.fs.chmod(activeNftPath, 0o600);
       return Object.freeze({ interfaceActive: true, tableExisted: existed });
     } catch (error) {
-      const rollbackErrors = [];
+      const rollbackErrors = [...(error.rollbackErrors ?? [])];
       if (compatibilityChanged) {
         try {
           await this.removeDockerCompatibility(compatibilityMarkers);
@@ -258,7 +265,8 @@ class RuntimeApplier {
           if (interfaceActive) {
             await this.runner(this.awgBinary, ['syncconf', awgInterface, previousStrippedPath]);
           } else {
-            await this.runner(this.awgQuickBinary, ['down', stagedConfigPath]);
+            if (this.interfaceDriver) await this.interfaceDriver.down(awgInterface);
+            else await this.runner(this.awgQuickBinary, ['down', stagedConfigPath]);
           }
         } catch (rollbackError) {
           rollbackErrors.push(rollbackError);
@@ -275,7 +283,8 @@ class RuntimeApplier {
     const awgInterface = validateInterface(interfaceName);
     const activeConfigPath = path.join(this.runtimeDirectory, `${awgInterface}.conf`);
     try {
-      await this.runner(this.awgQuickBinary, ['down', activeConfigPath]);
+      if (this.interfaceDriver) await this.interfaceDriver.down(awgInterface);
+      else await this.runner(this.awgQuickBinary, ['down', activeConfigPath]);
     } catch (error) {
       // При неудачной остановке активного интерфейса firewall остаётся на месте.
       if (!(error && (error.code === 1 || error.exitCode === 1))) throw error;

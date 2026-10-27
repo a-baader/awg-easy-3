@@ -3,10 +3,10 @@
 const crypto = require('node:crypto');
 
 const { generateOfficialProfile } = require('./Awg3Config');
-const { AwgKeyManager } = require('./AwgKeyManager');
 const { createNat66Plan } = require('./Ipv6Plan');
 const { NetworkDetector } = require('./NetworkDetector');
-const { STATE_VERSION, validateState } = require('./StateStore');
+const { STATE_VERSION, WG_STATE_VERSION, validateState } = require('./StateStore');
+const { createBackend } = require('./VpnBackend');
 
 const PASSWORD_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789';
 
@@ -30,7 +30,8 @@ const defaultPasswordHasher = (password) => {
 class BootstrapInstaller {
   constructor({
     store,
-    keyManager = new AwgKeyManager(),
+    backend = createBackend(),
+    keyManager = backend.keyManager,
     passwordHasher = defaultPasswordHasher,
     passwordGenerator = generatePassword,
     randomBytes = crypto.randomBytes,
@@ -56,6 +57,7 @@ class BootstrapInstaller {
       throw new TypeError('networkDetector must provide a detect method');
     }
     this.store = store;
+    this.backend = backend;
     this.keyManager = keyManager;
     this.passwordHasher = passwordHasher;
     this.passwordGenerator = passwordGenerator;
@@ -67,12 +69,12 @@ class BootstrapInstaller {
   async install({
     endpointHost,
     wanInterface,
-    interfaceName = 'awg0',
-    listenPort = 51820,
-    panelPort = 51821,
-    ipv4Subnet = '10.8.0.0/24',
-    serverAddress4 = '10.8.0.1',
-    firstClientAddress4 = '10.8.0.2',
+    interfaceName = this.backend.instance.interfaceName,
+    listenPort = this.backend.instance.listenPort,
+    panelPort = this.backend.instance.panelPort,
+    ipv4Subnet = this.backend.instance.ipv4Subnet,
+    serverAddress4 = this.backend.instance.address4,
+    firstClientAddress4 = this.backend.instance.firstClientAddress4,
     firstClientName = 'Home admin',
     uiLanguage = 'en',
     ipv6,
@@ -104,7 +106,7 @@ class BootstrapInstaller {
       panelPort,
       uiLanguage,
       endpointHost: resolvedEndpointHost,
-      profile: this.profileGenerator(),
+      ...(this.backend.kind === 'wireguard' ? { backend: 'wireguard' } : { profile: this.profileGenerator() }),
     };
     const client = {
       id: 'home-admin',
@@ -126,7 +128,7 @@ class BootstrapInstaller {
     }
 
     const state = validateState({
-      version: STATE_VERSION,
+      version: this.backend.kind === 'wireguard' ? WG_STATE_VERSION : STATE_VERSION,
       auth: { passwordHash, sessionSecret },
       server,
       clients: [client],

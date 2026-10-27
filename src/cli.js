@@ -4,11 +4,16 @@ const { Application } = require('./lib/Application');
 
 const command = process.argv[2] ?? 'serve';
 const application = new Application({
-  dataDirectory: process.env.AWG_EASY_DATA_DIR ?? '/data',
-  runtimeDirectory: process.env.AWG_EASY_RUNTIME_DIR ?? '/run/awg-easy-3',
+  backendName: process.env.VPN_BACKEND ?? 'amneziawg',
+  dataDirectory: process.env.VPN_DATA_DIR ?? process.env.AWG_EASY_DATA_DIR ?? '/data',
+  runtimeDirectory: process.env.VPN_RUNTIME_DIR ?? process.env.AWG_EASY_RUNTIME_DIR,
 });
 
 const printBootstrap = async (result) => {
+  if (application.backend.kind === 'wireguard') {
+    process.stdout.write(`WireGuard настроен.\nПанель после подключения VPN: ${result.panelUrl}\nПароль панели (показан один раз): ${result.bootstrapPassword}\n\nПервый Home-профиль WireGuard:\n${result.nativeConfig}\n`);
+    return;
+  }
   process.stdout.write([
     '',
     'AWG-Easy 3 initialized successfully.',
@@ -23,12 +28,13 @@ const printBootstrap = async (result) => {
 
 const main = async () => {
   if (command === 'init') {
+    await application.backend.validateEnvironment();
     return printBootstrap(await application.initialize({
-      endpointHost: process.env.AWG_HOST || undefined,
+      endpointHost: process.env.VPN_HOST || process.env.AWG_HOST || undefined,
       wanInterface: process.env.AWG_WAN_INTERFACE || undefined,
       firstClientName: process.env.AWG_FIRST_CLIENT_NAME || 'Home admin',
-      listenPort: process.env.AWG_PORT === undefined ? 51820 : Number(process.env.AWG_PORT),
-      panelPort: process.env.AWG_PANEL_PORT === undefined ? 51821 : Number(process.env.AWG_PANEL_PORT),
+      listenPort: Number(process.env.VPN_PORT ?? process.env.AWG_PORT ?? application.backend.instance.listenPort),
+      panelPort: Number(process.env.VPN_PANEL_PORT ?? process.env.AWG_PANEL_PORT ?? application.backend.instance.panelPort),
       uiLanguage: process.env.AWG_LANG || 'en',
     }));
   }
@@ -44,11 +50,13 @@ const main = async () => {
   }
   if (command === 'export-client') {
     const exported = await application.exportClient(process.argv[3]);
+    if (exported.nativeConfig) { process.stdout.write(exported.nativeConfig); return; }
     process.stdout.write(`AmneziaVPN profile for ${exported.clientName}:\n${exported.vpnLink}\n`);
     return;
   }
   if (command !== 'serve') throw new Error(`Unknown command: ${command}`);
 
+  await application.backend.validateEnvironment();
   const address = await application.start();
   process.stdout.write(`AWG-Easy 3 panel listening on http://${address.address}:${address.port}\n`);
   let stopping = false;

@@ -1,11 +1,11 @@
 'use strict';
 
 const { createVpnLink } = require('./AmneziaVpnLink');
-const { renderClientConfig, renderServerConfig } = require('./AwgConfigRenderer');
 const { buildClientRoutes } = require('./ClientRoutes');
 const { buildDnsPolicy } = require('./DnsPolicy');
 const { renderNftablesPolicy } = require('./NftablesPolicy');
 const { clientTraffic } = require('./ClientTraffic');
+const { createBackend, backendKind } = require('./VpnBackend');
 
 const peerAddresses = (client, serverHasIPv6) => [
   `${client.address4}/32`,
@@ -21,6 +21,7 @@ const buildAwgArtifacts = ({ server, clients, geoDatabase = {} }) => {
   }
 
   const enabledClients = clients.filter((client) => clientTraffic(client).enabled);
+  const backend = createBackend(backendKind(server));
   const activeHomes = enabledClients.filter((client) => client.networkGroup === 'home');
   if (activeHomes.length === 0) throw new Error('At least one enabled home client is required');
 
@@ -30,7 +31,7 @@ const buildAwgArtifacts = ({ server, clients, geoDatabase = {} }) => {
     ...(serverHasIPv6 ? [`${server.address6}/${server.ipv6Prefix ?? 64}`] : []),
   ];
 
-  const serverConfig = renderServerConfig({
+  const serverConfig = backend.renderServerConfig({
     privateKey: server.privateKey,
     addresses: serverAddresses,
     listenPort: server.listenPort,
@@ -44,6 +45,7 @@ const buildAwgArtifacts = ({ server, clients, geoDatabase = {} }) => {
   });
 
   const nftables = renderNftablesPolicy({
+    tableName: backend.instance.tableName,
     geoDatabase,
     geoClients: enabledClients.map(client => ({
       policy: client.geoPolicy,
@@ -71,7 +73,7 @@ const buildAwgArtifacts = ({ server, clients, geoDatabase = {} }) => {
     const routes = buildClientRoutes({ serverHasIPv6 });
     const dnsPolicy = buildDnsPolicy({ serverHasIPv6 });
     const addresses = peerAddresses(client, serverHasIPv6);
-    const nativeConfig = renderClientConfig({
+    const nativeConfig = backend.renderClientConfig({
       privateKey: client.privateKey,
       addresses,
       dnsPolicy,
@@ -80,11 +82,11 @@ const buildAwgArtifacts = ({ server, clients, geoDatabase = {} }) => {
       serverPublicKey: server.publicKey,
       presharedKey: client.presharedKey,
       allowedIps: routes.allowedIps,
-      persistentKeepalive: client.persistentKeepalive ?? '25-35',
+      persistentKeepalive: client.persistentKeepalive ?? (backend.kind === 'wireguard' ? 25 : '25-35'),
       endpointHost: server.endpointHost,
       endpointPort: server.endpointPort ?? server.listenPort,
     });
-    const vpnLink = createVpnLink({
+    const vpnLink = backend.kind === 'wireguard' ? null : createVpnLink({
       description: client.name,
       hostName: server.endpointHost,
       port: server.endpointPort ?? server.listenPort,

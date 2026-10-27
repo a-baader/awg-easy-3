@@ -143,6 +143,7 @@ class ApiService {
     await this.authorize(token);
     const artifact = await this.clientManager.getClientExport(clientId);
     if (format === 'vpn-link') {
+      if (artifact.vpnLink === null) throw new ApiError(400, 'WireGuard поддерживает .conf и QR; vpn:// недоступен');
       return Object.freeze({ contentType: 'text/plain; charset=utf-8', value: artifact.vpnLink });
     }
     if (format === 'native-config') {
@@ -154,8 +155,9 @@ class ApiService {
         value: artifact.nativeConfig,
       });
     }
-    if (format === 'qr-svg') {
-      return Object.freeze({ contentType: 'image/svg+xml; charset=utf-8', value: await this.qrGenerator(artifact.vpnLink) });
+    if (format === 'qr-svg' || format === 'qr-native-svg') {
+      const value = format === 'qr-native-svg' || artifact.vpnLink === null ? artifact.nativeConfig : artifact.vpnLink;
+      return Object.freeze({ contentType: 'image/svg+xml; charset=utf-8', value: await this.qrGenerator(value) });
     }
     throw new ApiError(400, 'Unknown export format');
   }

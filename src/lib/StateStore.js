@@ -8,9 +8,12 @@ const { validateProfile } = require('./Awg3Config');
 const { normalizeClientPolicy } = require('./ClientPolicy');
 const { clientTraffic } = require('./ClientTraffic');
 const { normalizeGeoPolicy } = require('./GeoIpPolicy');
+const { backendKind } = require('./VpnBackend');
+const { containsAddress } = require('./InstanceConfig');
 
 const STATE_VERSION = 1;
 const GEO_STATE_VERSION = 2;
+const WG_STATE_VERSION = 3;
 
 const requiredString = (value, field) => {
   if (typeof value !== 'string' || value.trim() === '' || /[\r\n]/.test(value)) {
@@ -45,7 +48,9 @@ const validateState = (input) => {
   if (!input || typeof input !== 'object' || Array.isArray(input)) {
     throw new TypeError('State must be a JSON object');
   }
-  if (![STATE_VERSION, GEO_STATE_VERSION].includes(input.version)) {
+  if (![STATE_VERSION, GEO_STATE_VERSION, WG_STATE_VERSION].includes(input.version)
+      || input.version === WG_STATE_VERSION && backendKind(input.server) !== 'wireguard'
+      || backendKind(input.server) === 'wireguard' && input.version !== WG_STATE_VERSION) {
     throw new Error(`Unsupported state version: ${input.version ?? 'missing'}; expected 1 or 2`);
   }
   if (!input.server || typeof input.server !== 'object' || Array.isArray(input.server)) {
@@ -69,8 +74,10 @@ const validateState = (input) => {
     endpointHost: requiredString(input.server.endpointHost, 'server.endpointHost'),
     address6: optionalString(input.server.address6, 'server.address6'),
     ipv6Subnet: optionalString(input.server.ipv6Subnet, 'server.ipv6Subnet'),
-    profile: validateProfile(input.server.profile),
+    ...(backendKind(input.server) === 'wireguard' ? {} : { profile: validateProfile(input.server.profile) }),
   };
+  if (!['amneziawg', 'wireguard'].includes(backendKind(server))) throw new TypeError('Неизвестный backend состояния');
+  if (backendKind(server) === 'wireguard' && server.profile !== undefined) throw new TypeError('Параметры AWG запрещены в состоянии WireGuard');
 
   const listenPort = Number(input.server.listenPort);
   const panelPort = Number(input.server.panelPort);
@@ -109,6 +116,11 @@ const validateState = (input) => {
       throw new TypeError(`clients[${index}] must be an object`);
     }
     const policy = normalizeClientPolicy(inputClient);
+    if (backendKind(server) === 'wireguard') {
+      if (!containsAddress(server.ipv4Subnet, inputClient.address4) || inputClient.address4 === server.address4) throw new TypeError('Некорректный адрес клиента WireGuard');
+      if (inputClient.address6 && !containsAddress(server.ipv6Subnet, inputClient.address6, 6)) throw new TypeError('Некорректный IPv6-адрес клиента WireGuard');
+      if (inputClient.persistentKeepalive !== undefined && (!/^\d+$/.test(String(inputClient.persistentKeepalive)) || Number(inputClient.persistentKeepalive) > 65535)) throw new TypeError('Некорректный PersistentKeepalive WireGuard');
+    }
     if (inputClient.address6 && !server.address6) {
       throw new TypeError('Client IPv6 address requires server IPv6 support');
     }
@@ -136,7 +148,7 @@ const validateState = (input) => {
 
   // Keep the format upgrade sticky: older panels ignore geoPolicy but reject v2.
   // Merely updating without enabling GeoIP retains the legacy format.
-  const version = input.version === GEO_STATE_VERSION
+  const version = backendKind(server) === 'wireguard' ? WG_STATE_VERSION : input.version === GEO_STATE_VERSION
     || clients.some(client => client.geoPolicy && client.geoPolicy.mode !== 'off')
     ? GEO_STATE_VERSION : STATE_VERSION;
   return deepFreeze({ version, auth, server, clients });
@@ -203,6 +215,7 @@ class StateStore {
 
 module.exports = {
   STATE_VERSION,
+  WG_STATE_VERSION,
   StateStore,
   validateState,
 };

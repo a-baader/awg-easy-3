@@ -2,7 +2,8 @@ services:
   awg-easy:
     build:
       context: .
+      target: awg
       args:
-        AWG_GO_COMMIT: 1b86b2ae0e493e7ea93f8c1a0f0cb6735b1551f1
+        AWG_GO_COMMIT: b5928efb6ca19f0153958460c3d141f04abc5c2e
         AWG_TOOLS_COMMIT: ee0f0a9aa34ff0a0da4b3433b9512781cfe02843
-    image: awg-easy-3:0.1.0-dev
+    image: vpn-easy-awg:dual-dev
