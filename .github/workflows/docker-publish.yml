@@ -163,4 +163,4 @@ jobs:
               --notes-file release-assets/notes.md
           fi
           gh release upload "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" \
-            release-assets/release-manifest.json release-assets/install-command.txt release-assets/SHA256SUMS --clobber
+            release-assets/release-manifest.json release-assets/install-command.txt release-assets/TEST_REPORT.ru.md release-assets/SHA256SUMS --clobber

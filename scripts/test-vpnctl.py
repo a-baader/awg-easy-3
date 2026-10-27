@@ -44,6 +44,7 @@ class FakeManager(Manager):
         return ''
     def legacy(self):return None
     def image(self,reference,backend):return reference
+    def resolve_image_reference(self,reference):return reference
     def inspect_container(self,name):return None
     def compose(self,*args):self.calls.append(['compose',*args]);return ''
     def validate_state_image(self,item,directory=None):return None

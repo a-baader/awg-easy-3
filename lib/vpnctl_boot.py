@@ -115,15 +115,19 @@ def fetch_release(current,fetch=download):
     if release.get('draft') or release.get('prerelease') or not re.fullmatch(r'v\d+\.\d+\.\d+',tag):
         raise ManagerError('Сервер не вернул стабильный опубликованный релиз',65)
     if stable_version(tag[1:])<=stable_version(current):return None
-    base='https://github.com/'+REPOSITORY+'/releases/download/'+tag+'/'
+    return fetch_manifest(tag[1:],fetch)
+
+def fetch_manifest(version,fetch=download):
+    stable_version(version)
+    base='https://github.com/'+REPOSITORY+'/releases/download/v'+version+'/'
     manifest=fetch(base+'release-manifest.json')
     checksums=fetch(base+'SHA256SUMS').decode()
     expected=hashlib.sha256(manifest).hexdigest()
     if not any(re.fullmatch(expected+r'\s+\*?release-manifest\.json',line) for line in checksums.splitlines()):
-        raise ManagerError('Контрольная сумма манифеста stable-релиза не совпала',65)
+        raise ManagerError('Контрольная сумма манифеста релиза не совпала',65)
     value=json.loads(manifest)
-    if value.get('version')!=tag[1:] or value.get('platform')!='linux/amd64' or not re.fullmatch(r'[a-f0-9]{40}',value.get('source_commit','')):
-        raise ManagerError('Манифест не соответствует stable-релизу',65)
+    if value.get('version')!=version or value.get('platform')!='linux/amd64' or not re.fullmatch(r'[a-f0-9]{40}',value.get('source_commit','')):
+        raise ManagerError('Манифест не соответствует выбранному релизу',65)
     if set(value.get('images',{}))!={'awg','wg'} or any(not re.fullmatch('ghcr.io/a-baader/awg-easy-3-'+name+r'@sha256:[a-f0-9]{64}',image) for name,image in value['images'].items()):
         raise ManagerError('Манифест содержит неподходящие образы',65)
     return value

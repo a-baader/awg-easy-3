@@ -22,12 +22,13 @@ manifest={'version':version,'images':records,'source_commit':args.commit,'platfo
 (output/'release-manifest.json').write_text(json.dumps(manifest,ensure_ascii=False,indent=2)+'\n')
 command="sudo ./vpnctl install --host YOUR_PUBLIC_IP \\\n  --awg-image '"+records['awg']+"' \\\n  --wg-image '"+records['wg']+"'\n"
 (output/'install-command.txt').write_text(command)
+(output/'TEST_REPORT.ru.md').write_bytes((project/'docs/TEST_REPORT.md').read_bytes())
 notes=(project/'docs/releases'/('v'+version+'.md')).read_text()
 notes+='\n## Образы по неизменяемым digest\n\n'+''.join('- '+name.upper()+': `'+records[name]+'`\n' for name in ['awg','wg'])
 notes+='\nПосле получения исходников этого тега выполните из каталога проекта:\n\n```sh\n'+command+'```\n'
 (output/'notes.md').write_text(notes)
 checks=[]
-for name in ['release-manifest.json','install-command.txt']:
+for name in ['release-manifest.json','install-command.txt','TEST_REPORT.ru.md']:
     checks.append(hashlib.sha256((output/name).read_bytes()).hexdigest()+'  '+name)
 (output/'SHA256SUMS').write_text('\n'.join(checks)+'\n')
 print('Manifest и инструкции созданы для '+version)

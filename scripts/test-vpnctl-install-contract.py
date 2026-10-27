@@ -40,7 +40,7 @@ class Contract(unittest.TestCase):
             args=self.args(['--reinstall','--host','cli.example','--port','39517'])
         self.assertEqual((args.command,args.component,args.host,args.awg_port,args.awg_panel_port,args.lang),('reinstall','all','cli.example',39517,51831,'ru'))
         self.assertEqual(self.args(['--uninstall']).command,'uninstall')
-        self.assertIn('@sha256:',self.args(['install']).wg_image)
+        self.assertEqual(self.args(['install']).wg_image,'release://'+(PROJECT/'VERSION').read_text().strip()+'/wg')
         self.assertEqual(self.args(['install','--build']).awg_image,'vpn-easy-awg:dual-dev')
     def test_bad_parameters_are_rejected_before_dependencies(self):
         for arguments in [['--port','0'],['--uninstall','--reinstall'],['--lang','bad'],['--unknown']]:
@@ -62,6 +62,36 @@ class Contract(unittest.TestCase):
         with mock.patch.dict(os.environ,{},clear=True):plan=self.manager.plan_install(args)
         for item in plan['components'].values():
             self.assertEqual(item['endpoint'],'172.16.0.2');self.assertEqual(item['wan_interface'],'eth1')
+    def test_default_release_resolution_is_verified_and_cached_for_both_images(self):
+        version=(PROJECT/'VERSION').read_text().strip()
+        release={'version':version,'images':{name:'ghcr.io/a-baader/awg-easy-3-'+name+'@sha256:'+'b'*64 for name in ['awg','wg']}}
+        with mock.patch('vpnctl_boot.fetch_manifest',return_value=release) as fetch:
+            for name in ['awg','wg']:
+                self.assertEqual(Manager.resolve_image_reference(self.manager,'release://'+version+'/'+name),release['images'][name])
+        fetch.assert_called_once_with(version)
+        self.assertEqual(json.loads((self.manager.root/'releases'/('v'+version+'.json')).read_text()),release)
+    def test_failed_default_manifest_does_not_start_containers(self):
+        with mock.patch('vpnctl_boot.fetch_manifest',side_effect=ManagerError('Неверный manifest')):
+            with self.assertRaisesRegex(ManagerError,'Не удалось проверить'):
+                Manager.resolve_image_reference(self.manager,'release://0.2.0-rc.2/wg')
+        self.assertFalse(self.manager.calls);self.assertFalse(self.manager.path.exists())
+    def test_update_refreshes_owned_installed_launcher(self):
+        cfg=self.installed();command=self.manager.system_root/'usr/local/sbin/vpnctl'
+        command.write_text('#!/bin/sh\n# Прежняя версия\n')
+        cfg['manager_files'][str(command)]=hashlib.sha256(command.read_bytes()).hexdigest();self.manager.write_config(cfg)
+        manifest=self.root/'update.json';atomic_json(manifest,{'version':(PROJECT/'VERSION').read_text().strip(),'images':{'wg':fixture['OLD']}})
+        with mock.patch('sys.stderr',io.StringIO()):self.manager.update(self.args(['update','wg','--manifest',str(manifest),'--yes']))
+        self.assertEqual(command.read_bytes(),(PROJECT/'vpnctl').read_bytes())
+    def test_update_does_not_overwrite_foreign_installed_launcher(self):
+        cfg=self.installed();command=self.manager.system_root/'usr/local/sbin/vpnctl'
+        command.write_text('Изменено администратором')
+        manifest=self.root/'update.json';atomic_json(manifest,{'version':(PROJECT/'VERSION').read_text().strip(),'images':{'wg':fixture['OLD']}})
+        before=(Path(cfg['components']['wg']['data_directory'])/'state.json').read_bytes()
+        with self.assertRaisesRegex(ManagerError,'чужой файл'):
+            self.manager.update(self.args(['update','wg','--manifest',str(manifest),'--yes']))
+        self.assertEqual(command.read_text(),'Изменено администратором')
+        self.assertEqual((Path(cfg['components']['wg']['data_directory'])/'state.json').read_bytes(),before)
+        self.assertFalse(any(call[:2]==['compose','stop'] for call in self.manager.calls))
     def test_empty_environment_port_is_invalid(self):
         with mock.patch.dict(os.environ,{'AWG_PORT':''}),mock.patch('sys.stderr',io.StringIO()):
             with self.assertRaises(SystemExit):self.args(['install'])

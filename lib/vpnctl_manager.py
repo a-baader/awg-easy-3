@@ -41,6 +41,7 @@ class Manager:
         self.root=self.path.parent; self.journal=self.root/'transaction.json'
         self.compose_path=self.root/'compose.json'
         self.bootstrap_results={}
+        self.resolved_releases={}
         self.system_root=Path(system_root)
 
     def config(self, required=True):
@@ -117,6 +118,19 @@ class Manager:
                 raise ManagerError('Не подтверждено владение контейнером: '+item['container'],73)
             proof[name]={**item,'data_directory':source}
         return proof
+
+    def resolve_image_reference(self,reference):
+        if not reference.startswith('release://'):return reference
+        try:version,name=reference[len('release://'):].rsplit('/',1)
+        except ValueError:raise ManagerError('Некорректная ссылка на релиз',65) from None
+        if name not in ('awg','wg'):raise ManagerError('Неизвестный компонент релиза',65)
+        vpnctl_boot.stable_version(version)
+        if version not in self.resolved_releases:
+            try:value=vpnctl_boot.fetch_manifest(version)
+            except Exception as error:raise ManagerError('Не удалось проверить manifest выбранного релиза; укажите опубликованные digest или используйте --build',69) from error
+            atomic_json(self.root/'releases'/('v'+version+'.json'),value)
+            self.resolved_releases[version]=value
+        return self.resolved_releases[version]['images'][name]
 
     def image(self,reference,backend):
         if not isinstance(reference,str) or not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9._/:@-]*',reference): raise ManagerError('Некорректная ссылка на образ',65)
@@ -561,6 +575,7 @@ class Manager:
         inspect_conflicts(plan['components'],owned=proof,run=lambda command:self.run(command))
         if args.build:self.build_images(args,list(plan['components']))
         for name,item in plan['components'].items():
+            item['image_ref']=self.resolve_image_reference(item['image_ref'])
             item['image']=self.image(item['image_ref'],item['backend'])
             self.validate_release_image(item,plan['version'])
             directory=Path(item['data_directory'])
@@ -623,7 +638,8 @@ class Manager:
         self.check_plan(candidate,existing)
         if args.build:self.build_images(args,selected)
         for name in selected:
-            item=candidate['components'][name];item['image']=self.image(item['image_ref'],item['backend'])
+            item=candidate['components'][name];item['image_ref']=self.resolve_image_reference(item['image_ref'])
+            item['image']=self.image(item['image_ref'],item['backend'])
             self.validate_release_image(item,candidate['version'])
             directory=Path(item['data_directory'])
             if directory.exists() and any(directory.iterdir()):raise ManagerError('Каталог нового компонента уже занят',73)
@@ -781,6 +797,7 @@ class Manager:
             self.validate_state_image(candidate['components'][name])
         if args.dry_run: return {'dry_run':True,'version':release['version'],'components':selected}
         self.owned(config)
+        self.check_system_paths(config)
         journal={'operation':'update','phase':'prepared','previous':config,'candidate':candidate,'selected':selected}
         try:
             current=self.freeze(journal)
@@ -790,7 +807,11 @@ class Manager:
                 current['components'][name]=candidate['components'][name]
                 self.write_config(current); self.compose('up','-d','--no-deps',name+'-easy'); self.health(current['components'][name])
                 journal['phase']='updated:'+name; self.save_journal(journal)
+            candidate['maintenance_components']=selected
+            self.register(candidate)
+            journal['candidate']=copy.deepcopy(candidate)
             self.commit_transaction(journal)
+            self.sync_boot_hook()
             return {'updated':selected,'version':release['version'],'snapshot':snapshot}
         except BaseException:
             self.rollback(journal); raise
@@ -822,6 +843,7 @@ class Manager:
             if item['data_directory']!=previous['components'][name]['data_directory']:
                 raise ManagerError('При переустановке нельзя менять каталог данных; используйте backup и restore',64)
             if not args.dry_run:
+                item['image_ref']=self.resolve_image_reference(item['image_ref'])
                 item['image']=self.image(item['image_ref'],item['backend'])
                 self.validate_release_image(item,candidate['version'])
         if args.dry_run:return {'dry_run':True,'reinstall':selected,'backups_preserved':True}
@@ -1032,15 +1054,15 @@ def parse_arguments(project,argv):
                 if getattr(args,name+'_image') is None:
                     if args.build:setattr(args,name+'_image','vpn-easy-'+name+':dual-dev')
                     else:
-                        release=json.loads((Path(project)/'release-images.json').read_text())
-                        setattr(args,name+'_image',release['images'][name])
+                        version=(Path(project)/'VERSION').read_text().strip()
+                        setattr(args,name+'_image','release://'+version+'/'+name)
             if args.data_root:args.data_root=str((Path(project)/args.data_root).resolve())
     return parser,args,validate_only
 
 def main(project,argv=None):
     try:parser,args,validate_only=parse_arguments(project,argv)
     except (OSError,ValueError,KeyError):
-        print('Ошибка: не удалось прочитать закреплённые образы из release-images.json',file=sys.stderr);return 65
+        print('Ошибка: не удалось прочитать версию исходников vpnctl',file=sys.stderr);return 65
     if validate_only:return 0
     if args.command=='help': parser.print_help();return 0
     if os.geteuid()!=0: print('Ошибка: запустите vpnctl через sudo',file=sys.stderr);return 69
