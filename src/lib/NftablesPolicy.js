@@ -2,17 +2,24 @@
 
 const net = require('node:net');
 const { renderGeoIpPolicy } = require('./GeoIpPolicy');
+const { validateOwnedTable } = require('./InstanceConfig');
 
 const TABLE_NAME = 'awg_easy_3';
 
-const buildAtomicNftBatch = (policy, { tableExists = false } = {}) => {
-  if (typeof policy !== 'string' || !policy.includes(`table inet ${TABLE_NAME} {`)) {
+const buildAtomicNftBatch = (policy, { tableExists = false, tableName = TABLE_NAME } = {}) => {
+  validateOwnedTable(tableName);
+  if (typeof policy !== 'string' || !policy.includes(`table inet ${tableName} {`)) {
     throw new TypeError('Policy does not define the AWG-Easy 3 table');
   }
   if (/\bflush\s+ruleset\b/i.test(policy) || /\bdelete\s+table\b/i.test(policy)) {
     throw new TypeError('Policy contains a forbidden destructive statement');
   }
-  const prefix = tableExists ? `delete table inet ${TABLE_NAME}\n` : '';
+  const tables = [...policy.matchAll(/\btable\s+\w+\s+([a-zA-Z0-9_]+)\s*\{/g)];
+  if (tables.length !== 1 || (policy.match(/\btable\s+/g) ?? []).length !== 1 || tables[0][1] !== tableName
+      || /^\s*(?:add|insert|replace|flush|delete|include|destroy|rename|reset)\s/mi.test(policy)) {
+    throw new TypeError('Политика затрагивает чужие ресурсы firewall');
+  }
+  const prefix = tableExists ? `delete table inet ${tableName}\n` : '';
   return `${prefix}${policy}`;
 };
 
@@ -64,7 +71,9 @@ const renderNftablesPolicy = ({
   panelPort = 51821,
   geoClients = [],
   geoDatabase = {},
+  tableName = TABLE_NAME,
 }) => {
+  validateOwnedTable(tableName);
   const awg = validateInterface(interfaceName);
   const wan = validateInterface(wanInterface);
   const subnet4 = validateCidr(ipv4Subnet, 4, 'ipv4Subnet');
@@ -132,7 +141,7 @@ const renderNftablesPolicy = ({
     active4: [...normalizedHome4, ...normalizedGuest4], active6: [...normalizedHome6, ...normalizedGuest6] });
 
   return `# Managed by AWG-Easy 3. Do not append unrelated rules to this table.
-table inet ${TABLE_NAME} {
+table inet ${tableName} {
   set active4 {
     type ipv4_addr${elementsClause([...normalizedHome4, ...normalizedGuest4])}
   }

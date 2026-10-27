@@ -5,6 +5,7 @@ const path = require('node:path');
 
 const { TABLE_NAME, buildAtomicNftBatch } = require('./NftablesPolicy');
 const { runProcess } = require('./ProcessRunner');
+const { validateOwnedTable } = require('./InstanceConfig');
 
 const DOCKER_COMPATIBILITY = Object.freeze([
   Object.freeze({ family: 'ip', direction: 'iifname', marker: 'awg_easy_3_forward_v4' }),
@@ -35,6 +36,7 @@ class RuntimeApplier {
     awgBinary = 'awg',
     awgQuickBinary = 'awg-quick',
     nftBinary = 'nft',
+    tableName = TABLE_NAME,
   } = {}) {
     if (typeof runner !== 'function') throw new TypeError('runner must be a function');
     if (!fileSystem || typeof fileSystem.writeFile !== 'function') {
@@ -46,11 +48,14 @@ class RuntimeApplier {
     this.awgBinary = awgBinary;
     this.awgQuickBinary = awgQuickBinary;
     this.nftBinary = nftBinary;
+    this.tableName = validateOwnedTable(tableName);
+    this.compatibilityRules = DOCKER_COMPATIBILITY.map(rule => ({ ...rule,
+      marker: rule.marker.replace('awg_easy_3', this.tableName) }));
   }
 
   async tableExists() {
     try {
-      await this.runner(this.nftBinary, ['list', 'table', 'inet', TABLE_NAME]);
+      await this.runner(this.nftBinary, ['list', 'table', 'inet', this.tableName]);
       return true;
     } catch (error) {
       if (error && (error.code === 1 || error.exitCode === 1)) return false;
@@ -82,7 +87,7 @@ class RuntimeApplier {
         throw error;
       }
       if (!chain.includes('chain DOCKER-USER')) continue;
-      for (const rule of DOCKER_COMPATIBILITY.filter((item) => item.family === family)) {
+      for (const rule of this.compatibilityRules.filter((item) => item.family === family)) {
         if (chain.includes(`comment "${rule.marker}"`)) continue;
         const state = rule.state ? ' ct state established,related' : '';
         lines.push(`insert rule ${family} filter DOCKER-USER ${rule.direction} "${awgInterface}"${state} accept comment "${rule.marker}"`);
@@ -91,7 +96,10 @@ class RuntimeApplier {
     return lines.length === 0 ? '' : `${lines.join('\n')}\n`;
   }
 
-  async removeDockerCompatibility(markers = DOCKER_COMPATIBILITY.map((rule) => rule.marker)) {
+  async removeDockerCompatibility(markers = this.compatibilityRules.map((rule) => rule.marker)) {
+    if (markers.some(marker => !this.compatibilityRules.some(rule => rule.marker === marker))) {
+      throw new TypeError('Запрещено удалять правила другого VPN-экземпляра');
+    }
     const selected = new Set(markers);
     const errors = [];
     for (const family of ['ip', 'ip6']) {
@@ -128,7 +136,7 @@ class RuntimeApplier {
   async apply({ serverConfig, nftables, interfaceName = 'awg0', interfaceActive = false }) {
     const awgInterface = validateInterface(interfaceName);
     const config = requireManagedText(serverConfig, '[Interface]', 'serverConfig');
-    const policy = requireManagedText(nftables, `table inet ${TABLE_NAME} {`, 'nftables');
+    const policy = requireManagedText(nftables, `table inet ${this.tableName} {`, 'nftables');
     if (typeof interfaceActive !== 'boolean') throw new TypeError('interfaceActive must be a boolean');
 
     await this.fs.mkdir(this.runtimeDirectory, { recursive: true, mode: 0o700 });
@@ -155,7 +163,7 @@ class RuntimeApplier {
     const existed = await this.tableExists();
 
     try {
-      const nftBatch = buildAtomicNftBatch(policy, { tableExists: existed });
+      const nftBatch = buildAtomicNftBatch(policy, { tableExists: existed, tableName: this.tableName });
       const dockerBatch = await this.dockerCompatibilityBatch(awgInterface);
       compatibilityMarkers = [...dockerBatch.matchAll(/comment "([^"]+)"/g)].map((match) => match[1]);
       await this.fs.writeFile(stagedConfigPath, config, { mode: 0o600, flag: 'wx' });
@@ -234,12 +242,12 @@ class RuntimeApplier {
             const rollbackPath = path.join(stagingDirectory, 'rollback.nft');
             await this.fs.writeFile(
               rollbackPath,
-              buildAtomicNftBatch(previousPolicy, { tableExists: true }),
+              buildAtomicNftBatch(previousPolicy, { tableExists: true, tableName: this.tableName }),
               { mode: 0o600, flag: 'wx' },
             );
             await this.runner(this.nftBinary, ['-f', rollbackPath]);
           } else {
-            await this.runner(this.nftBinary, ['delete', 'table', 'inet', TABLE_NAME]);
+            await this.runner(this.nftBinary, ['delete', 'table', 'inet', this.tableName]);
           }
         } catch (rollbackError) {
           rollbackErrors.push(rollbackError);
@@ -266,15 +274,29 @@ class RuntimeApplier {
   async down({ interfaceName = 'awg0' } = {}) {
     const awgInterface = validateInterface(interfaceName);
     const activeConfigPath = path.join(this.runtimeDirectory, `${awgInterface}.conf`);
-    const errors = [];
     try {
       await this.runner(this.awgQuickBinary, ['down', activeConfigPath]);
     } catch (error) {
-      if (!(error && (error.code === 1 || error.exitCode === 1))) errors.push(error);
+      // При неудачной остановке активного интерфейса firewall остаётся на месте.
+      if (!(error && (error.code === 1 || error.exitCode === 1))) throw error;
+      try {
+        await this.runner(this.awgBinary, ['show', awgInterface]);
+      } catch (probeError) {
+        if (probeError.code === 1 || probeError.exitCode === 1) {
+          return this.removeStoppedResources();
+        }
+        throw probeError;
+      }
+      throw new Error('VPN-интерфейс не остановлен; защитный firewall сохранён');
     }
+    return this.removeStoppedResources();
+  }
+
+  async removeStoppedResources() {
+    const errors = [];
     try {
       if (await this.tableExists()) {
-        await this.runner(this.nftBinary, ['delete', 'table', 'inet', TABLE_NAME]);
+        await this.runner(this.nftBinary, ['delete', 'table', 'inet', this.tableName]);
       }
     } catch (error) {
       errors.push(error);

@@ -7,3 +7,10 @@
 *.swp
 .idea
 /private-test-access/
+.env
+.env.*
+/data/
+/data-wg/
+/backups/
+/.vpnctl/
+*.key

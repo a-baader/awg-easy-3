@@ -105,5 +105,6 @@ module.exports = {
   allocateIPv4,
   allocateIPv6,
   formatIPv6,
+  parseIPv4,
   parseIPv6,
 };
