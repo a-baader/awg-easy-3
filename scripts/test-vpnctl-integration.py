@@ -116,6 +116,16 @@ try:
     if manager.journal.exists():print('Журнал транзакции сохранён, требуется recover',flush=True)
     assert manager.config()==saved and not manager.journal.exists()
     assert manager.rpc(wg,'diagnose')['panel'];passed('отказ healthcheck: реальный rollback образа и matching state')
+    execute(['docker','exec',anchor,'nft','add','table','inet','foreign_sentinel'])
+    manager.uninstall(build_parser().parse_args(['uninstall','wg','--yes']))
+    assert manager.rpc(manager.config()['components']['awg'],'diagnose')['panel']
+    execute(['docker','exec',anchor,'nft','list','table','inet','foreign_sentinel'])
+    passed('uninstall WG сохраняет AWG и чужую таблицу nftables')
+    with mock.patch('vpnctl_manager.environment_check',return_value={'fixture':'disposable'}):manager.install(args)
+    manager.uninstall(build_parser().parse_args(['uninstall','awg','--yes']))
+    assert manager.rpc(manager.config()['components']['wg'],'diagnose')['panel']
+    execute(['docker','exec',anchor,'nft','list','table','inet','foreign_sentinel'])
+    passed('повторная установка WG и uninstall AWG сохраняют WG и чужую таблицу nftables')
     print('SUCCESS: испытания manager завершены без изменения сети хоста',flush=True)
 finally:
     for name in [prefix+'-awg',prefix+'-wg',anchor]:execute(['docker','rm','-f',name],check=False)

@@ -20,6 +20,11 @@ class InterruptedManager(IsolatedManager):
         if self.interrupt_at=='restore_replaced' and args==('up','-d','--no-deps','wg-easy'):
             if json.loads(self.journal.read_text()).get('snapshot'):os.kill(os.getpid(),signal.SIGKILL)
         return value
+    def health(self,item):
+        if self.interrupt_at=='rollback_committed' and item['backend']=='wireguard' and not getattr(self,'injected_failure',False):
+            if self.journal.exists() and json.loads(self.journal.read_text()).get('phase') in ('snapshot_verified','updated:awg'):
+                self.injected_failure=True;raise ManagerError('Искусственный отказ перед rollback')
+        return super().health(item)
 
 def update_child(stage,manifest):
     manager=InterruptedManager();manager.interrupt_at=stage
@@ -48,7 +53,7 @@ try:
         execute(['docker','build','-t',tag,str(build)],env={**os.environ,'DOCKER_BUILDKIT':'0'})
         candidate_images[name]=tag
     manifest=root/'release.json';atomic_json(manifest,{'version':'0.1.6','images':candidate_images})
-    for stage in ['before_snapshot','updated:awg','committed']:
+    for stage in ['before_snapshot','updated:awg','committed','rollback_committed']:
         before=manager.config()
         states={name:(Path(item['data_directory'])/'state.json').read_bytes() for name,item in before['components'].items()}
         process=multiprocessing.get_context('fork').Process(target=update_child,args=(stage,manifest))
@@ -62,6 +67,12 @@ try:
             manager.rpc(item,'maintenance.end')
             manager.rpc(item,'client.add',{'name':'Запись после commit','group':'guest'})
             states['wg']=(Path(item['data_directory'])/'state.json').read_bytes()
+            for item in cfg['components'].values():execute(['docker','stop',item['container']])
+        if stage=='rollback_committed':
+            cfg=journal['previous'];manager.write_config(cfg)
+            manager.compose('up','-d','--no-deps','wg-easy');manager.health(cfg['components']['wg'])
+            manager.rpc(cfg['components']['wg'],'client.add',{'name':'Запись после rollback','group':'guest'})
+            states['wg']=(Path(cfg['components']['wg']['data_directory'])/'state.json').read_bytes()
             for item in cfg['components'].values():execute(['docker','stop',item['container']])
         with global_lock(root/'global.lock',root/'legacy.lock',recovery_journal=manager.journal):
             manager.rollback(journal)

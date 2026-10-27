@@ -62,6 +62,11 @@ class Manager:
         return json.loads(raw)[0] if raw else None
 
     def rpc(self, item, operation, args=None):
+        info=self.inspect_container(item['container'])
+        name='wg' if item['backend']=='wireguard' else 'awg'
+        source=next((mount['Source'] for mount in (info or {}).get('Mounts',[]) if mount['Destination']=='/data'),None)
+        if not info or info.get('Image')!=item['image'] or source!=item['data_directory'] or info.get('HostConfig',{}).get('NetworkMode')!='host' or info.get('Config',{}).get('Labels',{}).get('com.docker.compose.service')!=name+'-easy':
+            raise ManagerError('Локальная операция остановлена: владение контейнером не подтверждено',73)
         raw=self.run(['docker','exec','-i',item['container'],'node','/app/control-client.js'], input=json.dumps({'operation':operation,'args':args or {}},ensure_ascii=False)+'\n')
         try: result=json.loads(raw)
         except ValueError: raise ManagerError('Некорректный ответ локального канала управления',74) from None
@@ -127,11 +132,19 @@ class Manager:
         return info['Id']
 
     def build_images(self,args,selected):
+        environment=os.environ.copy()
+        if self.run(['docker','buildx','version'],check=False) is None:
+            environment['DOCKER_BUILDKIT']='0'
         for name in selected:
             reference=args.awg_image if name=='awg' else args.wg_image
             if not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9._/:-]*',reference) or reference.startswith('sha256:'):
                 raise ManagerError('Для --build укажите локальный tag образа',64)
-            self.run(['docker','build','--target',name,'--tag',reference,str(self.project)])
+            self.run(['docker','build','--target',name,'--tag',reference,str(self.project)],env=environment)
+
+    def validate_release_image(self,item,version):
+        actual=self.run(['docker','run','--rm','--network','none','--read-only','--entrypoint','node',item['image'],
+            '-p',"require('/app/package.json').version"]).strip()
+        if actual!=version:raise ManagerError('Версия приложения в образе не совпадает с манифестом релиза',65)
 
     def status(self,component='all'):
         config=self.config(False)
@@ -206,7 +219,10 @@ class Manager:
         candidate=copy.deepcopy(journal['candidate'])
         candidate['maintenance_components']=journal['selected']
         self.write_config(candidate)
-        journal['phase']='committed';self.save_journal(journal)
+        committed={**journal,'phase':'committed'}
+        journal['phase']='commit_uncertain'
+        self.save_journal(committed)
+        journal.update(committed)
         self.finish_committed(journal)
 
     def finish_committed(self,journal):
@@ -221,6 +237,33 @@ class Manager:
             info=self.inspect_container(item['container'])
             if info and info['State'].get('Running'):
                 self.rpc(item,'maintenance.end')
+        self.journal.unlink(missing_ok=True)
+
+    def commit_rollback(self,journal):
+        completed={**journal,'phase':'rollback_committed'}
+        journal['phase']='commit_uncertain'
+        self.save_journal(completed)
+        journal.update(completed)
+        self.finish_rollback(journal)
+
+    def finish_rollback(self,journal):
+        # Данные уже восстановлены. Повторный recover не заменяет их snapshot.
+        self.verify_transaction_containers(journal)
+        previous=journal['previous']
+        self.restore_manager_files(journal)
+        if journal['operation']=='install' and previous.get('legacy_origin'):
+            item=previous['components']['awg'];info=self.inspect_container(item['container'])
+            if info and info.get('Image')!=item['image']:
+                self.run(['docker','rm','-f',item['container']])
+            self.run(['env','AWG_IMAGE='+item['image'],'docker','compose','--project-directory',previous['project'],'-f',str(Path(previous['project'])/'docker-compose.yml'),'up','-d','--pull','never','awg-easy'])
+            self.health(item);self.path.unlink(missing_ok=True)
+        else:
+            self.write_config(previous)
+            for name in journal['selected']:
+                if name in previous['components']:
+                    self.compose('up','-d','--no-deps',name+'-easy');self.health(previous['components'][name])
+                    info=self.inspect_container(previous['components'][name]['container'])
+                    if info and info['State'].get('Running'):self.rpc(previous['components'][name],'maintenance.end')
         self.journal.unlink(missing_ok=True)
 
     def packet_probe(self,item,options):
@@ -284,6 +327,10 @@ class Manager:
         directory=labels.get('com.docker.compose.project.working_dir')
         if labels.get('com.docker.compose.service')!='awg-easy' or not source or not directory or info.get('HostConfig',{}).get('NetworkMode')!='host':
             raise ManagerError('Существующая установка AWG не распознана; она не изменена',65)
+        if 'VPN_DUAL_MODE=1' in info['Config'].get('Env',[]):
+            raise ManagerError('Найден Dual-контейнер без конфигурации manager; восстановите конфигурацию из backup',65)
+        try:self.validate_release_image({'image':info['Image']},'0.1.6')
+        except ManagerError:raise ManagerError('Миграция поддерживает исходный AWG 0.1.6; другая версия не изменена',65) from None
         try: state=json.loads((Path(source)/'state.json').read_text())
         except (OSError,ValueError): raise ManagerError('Состояние исходного AWG не распознано',65) from None
         if state.get('version') not in (1,2) or state.get('server',{}).get('backend','amneziawg')!='amneziawg':
@@ -516,10 +563,7 @@ class Manager:
             self.commit_transaction(journal)
             return {'installed':True,'components':list(plan['components']),'bootstrap_directory':str(self.root/'bootstrap'),'automatic_updates':False}
         except BaseException:
-            if journal.get('snapshot') or not legacy: self.rollback(journal)
-            elif legacy:
-                self.run(['docker','start',legacy['item']['container']]);self.health(legacy['item']);self.journal.unlink(missing_ok=True)
-            raise
+            self.rollback(journal);raise
 
     def cleanup_created(self,item):
         info=self.inspect_container(item['container'])
@@ -621,12 +665,15 @@ class Manager:
             for directory in staged.values(): shutil.rmtree(directory,ignore_errors=True)
 
     def rollback(self,journal):
+        if journal.get('phase')=='commit_uncertain':
+            raise ManagerError('Не подтверждена запись точки фиксации; режим обслуживания сохранён. Исправьте ошибку хранения и выполните vpnctl recover',75)
         # register мог успеть сохранить undo-запись после последней фазы в памяти.
         if self.journal.exists():
             saved=json.loads(self.journal.read_text())
             if 'manager_files_before' in saved:journal['manager_files_before']=saved['manager_files_before']
         self.verify_transaction_containers(journal)
         if journal.get('phase')=='committed': return self.finish_committed(journal)
+        if journal.get('phase')=='rollback_committed':return self.finish_rollback(journal)
         previous=journal.get('previous'); snapshot=journal.get('snapshot')
         if previous and not snapshot and journal['operation']=='install' and previous.get('legacy_origin'):
             legacy=previous['legacy_origin'];item=previous['components']['awg']
@@ -636,14 +683,7 @@ class Manager:
                 self.run(['docker','start',item['container']]);self.health(item)
             self.journal.unlink(missing_ok=True);return
         if previous and not snapshot and journal['operation'] in ('update','restore','uninstall'):
-            self.write_config(previous)
-            for name in journal['selected']:
-                item=previous['components'][name]
-                info=self.inspect_container(item['container'])
-                if info and (info['State'].get('Running') or name in journal.get('running_before',[])):
-                    self.compose('up','-d','--no-deps',name+'-easy');self.health(item)
-                    self.rpc(item,'maintenance.end')
-            self.journal.unlink(missing_ok=True);return
+            self.commit_rollback(journal);return
         if (journal['operation']=='extend' and previous) or (journal['operation'] in ('install','restore') and not previous):
             for name in journal['selected']:
                 item=journal['candidate']['components'][name]
@@ -672,20 +712,7 @@ class Manager:
             old=target.parent/('.failed-'+uuid.uuid4().hex)
             if target.exists(): durable_replace(target,old)
             durable_replace(stage,target)
-        if journal['operation']=='install' and previous.get('legacy_origin'):
-            item=previous['components']['awg']; self.run(['docker','rm','-f',item['container']],check=False)
-            env=os.environ.copy(); env['AWG_IMAGE']=item['image']
-            # Передача старого image через аргумент env исключает плавающий registry tag.
-            self.run(['env','AWG_IMAGE='+item['image'],'docker','compose','--project-directory',previous['project'],'-f',str(Path(previous['project'])/'docker-compose.yml'),'up','-d','--pull','never','awg-easy'])
-            self.health(item)
-            self.path.unlink(missing_ok=True)
-        else:
-            self.write_config(previous)
-            for name in journal['selected']:
-                if name in previous['components']: self.compose('up','-d','--no-deps',name+'-easy'); self.health(previous['components'][name])
-            if previous.get('manager_files') and 'manager_files_before' not in journal:self.register(previous)
-        self.restore_manager_files(journal)
-        self.journal.unlink(missing_ok=True)
+        self.commit_rollback(journal)
 
     def verify_transaction_containers(self,journal):
         # Журнал не даёт права останавливать чужой контейнер с совпавшим именем.
@@ -713,6 +740,7 @@ class Manager:
             if not isinstance(reference,str) or ':latest' in reference: raise ManagerError('Релиз должен указывать точный образ компонента',65)
             candidate['components'][name]['image']=self.image(reference,candidate['components'][name]['backend'])
             candidate['components'][name]['image_ref']=reference
+            self.validate_release_image(candidate['components'][name],release['version'])
             self.validate_state_image(candidate['components'][name])
         if args.dry_run: return {'dry_run':True,'version':release['version'],'components':selected}
         self.owned(config)
@@ -877,7 +905,7 @@ def main(project,argv=None):
             raise ManagerError('Обнаружена прерванная операция; выполните vpnctl recover',75)
         if args.command in ('backup','restore','update','uninstall','recover') or args.command=='client' and args.action=='remove':
             confirmation(args,'Операция может остановить выбранные VPN или заменить данные')
-        if args.command=='install' and manager.legacy() and not manager.config(False):
+        if args.command=='install' and not manager.config(False) and manager.legacy():
             confirmation(args,'Миграция кратковременно остановит исходный AWG; сначала будет создана резервная копия')
         def perform():
             if args.command=='status': return manager.status(args.component)
@@ -885,7 +913,9 @@ def main(project,argv=None):
             if args.command=='install':
                 if dry:
                     environment_check(run=lambda command:manager.run(command));plan=manager.plan_install(args)
-                    legacy=plan.get('legacy_origin');proof={'awg':legacy['item']} if legacy else {}
+                    legacy=plan.get('legacy_origin')
+                    current=manager.config(False)
+                    proof=manager.owned(current) if current else {'awg':legacy['item']} if legacy else {}
                     inspect_conflicts(plan['components'],owned=proof,run=lambda command:manager.run(command))
                     return {'dry_run':True,'components':plan['components']}
                 return manager.install(args)

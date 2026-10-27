@@ -38,11 +38,21 @@ async function request(host, portNumber, allow) {
   if (mode === 'wan') {
     await run('ip', ['address', 'add', '93.184.216.34/32', 'dev', 'lo']);
     await run('ip', ['-6', 'address', 'add', '2001:4860:dead::34/128', 'dev', 'lo', 'nodad']);
-    echo(); console.log('WAN готов.'); return;
+    echo();
+    for (const udpPort of [5353, 1900]) {
+      const socket = dgram.createSocket({ type: 'udp4', reuseAddr: true });
+      socket.on('message', message => {
+        if (message.toString().includes('DUAL-TEST-')) fs.appendFile('/tmp/discovery.txt', message.toString() + '\n').catch(() => {});
+      });
+      await new Promise(resolve => socket.bind(udpPort, '0.0.0.0', resolve));
+    }
+    console.log('WAN готов.'); return;
   }
   if (mode === 'server') {
-    const app = new Application({ backendName: kind, dualMode: true, geoFactory: () => ({ current: null,
-      load: async () => null, start() {}, stop: async () => {} }) });
+    const available = !await fs.stat('/data/geo-unavailable').then(() => true, () => false);
+    const snapshot = available ? { database: { RU: { ipv4: ['93.184.216.34/32'], ipv6: ['2001:4860:dead::34/128'] }, ZZ: { ipv4: [], ipv6: [] } }, countries: ['RU', 'ZZ'] } : null;
+    const app = new Application({ backendName: kind, dualMode: true, geoFactory: () => ({ current: snapshot,
+      load: async () => snapshot, refresh: async () => null, start() {}, stop: async () => {} }) });
     if (!await app.store.load()) {
       const initial = await app.initialize({ ipv6: { mode: 'nat66', subnet: `fd42:${n}::/64`, serverAddress: `fd42:${n}::1`, firstClientAddress: `fd42:${n}::2` } });
       await save('test-password', initial.bootstrapPassword);
@@ -54,12 +64,42 @@ async function request(host, portNumber, allow) {
       await app.clientManager.createClient({ name: 'Guest', networkGroup: 'guest' });
     }
     const readyState = await app.store.load();
-    const artifacts = app.artifactBuilder({ ...readyState });
+    const artifacts = app.artifactBuilder({ ...readyState, geoDatabase: snapshot?.database ?? {} });
     for (const [index, client] of readyState.clients.entries()) await save('profile-' + index + '.conf', artifacts.clientArtifacts[client.id].nativeConfig);
     console.log('Сервер готов.');
     process.once('SIGTERM', () => app.stop().then(() => process.exit(0)).catch(() => process.exit(1)));
     return;
   }
+  if (mode === 'policy') {
+    const state = JSON.parse(await read('state.json'));
+    const target = state.clients.find(client => client.name === process.argv[3] || client.id === process.argv[3]);
+    assert(target, 'Клиент для проверки не найден');
+    const base = `http://10.${n}.0.1:${port}`;
+    const login = await fetch(base + '/api/v1/session', { method: 'POST', headers: { 'Content-Type': 'application/json', Origin: base }, body: JSON.stringify({ password: await read('test-password') }) });
+    assert.equal(login.status, 200);
+    const response = await fetch(base + '/api/v1/clients/' + target.id, { method: 'PATCH',
+      headers: { 'Content-Type': 'application/json', Origin: base, Cookie: login.headers.get('set-cookie').split(';')[0] }, body: process.argv[4] });
+    assert.equal(response.status, 200, 'Изменение политики не принято');
+    console.log('Политика изменена'); return;
+  }
+  if (mode === 'host-echo') { http.createServer((req, res) => req.pipe(res)).listen(18080, '::'); console.log('Host echo готов.'); return; }
+  if (mode === 'flow') {
+    const agent = new http.Agent({ keepAlive: true, maxSockets: 1 }); let busy = false, count = 0;
+    await fs.writeFile('/tmp/flow-count', '0');
+    setInterval(() => {
+      if (busy) return; busy = true;
+      const req = http.request({ host: '93.184.216.34', port: 8080, method: 'POST', agent }, response => {
+        const chunks = []; response.on('data', chunk => chunks.push(chunk));
+        response.on('end', () => {
+          if (Buffer.concat(chunks).equals(Buffer.alloc(4096, 0x5a))) fs.writeFile('/tmp/flow-count', String(++count)).catch(() => {});
+        });
+      });
+      req.on('error', () => {}); req.on('close', () => { busy = false; });
+      req.setTimeout(750, () => req.destroy()); req.end(Buffer.alloc(4096, 0x5a));
+    }, 200);
+    console.log('Поток запущен'); return;
+  }
+  if (mode === 'flow-count') { console.log(await fs.readFile('/tmp/flow-count', 'utf8')); return; }
   if (mode === 'client') {
     const index = Number(process.argv[3]);
     const config = await read('profile-' + index + '.conf');
@@ -80,6 +120,12 @@ async function request(host, portNumber, allow) {
       await run('ip', ['-6', 'address', 'add', own6 + '/128', 'dev', 'peer0', 'nodad']);
       await run('ip', ['link', 'set', 'dev', 'peer0', 'mtu', '1280', 'up']);
     }
+    const defaults = JSON.parse((await run('ip', ['-j', '-4', 'route', 'show', 'default'])).stdout);
+    const underlay = defaults.find(item => item.gateway && item.dev);
+    assert(underlay, 'Не найден внешний маршрут клиента');
+    await run('ip', ['route', 'add', 'default', 'via', underlay.gateway, 'dev', underlay.dev, 'table', '100']);
+    await run('ip', ['rule', 'add', 'fwmark', '51820', 'table', '100', 'priority', '100']);
+    await run(binary, ['set', 'peer0', 'fwmark', '51820']);
     for (const subnet of ['0.0.0.0/1', '128.0.0.0/1', '224.0.0.0/4']) await run('ip', ['route', 'add', subnet, 'dev', 'peer0']);
     for (const subnet of ['2000::/3', 'fc00::/7']) await run('ip', ['-6', 'route', 'add', subnet, 'dev', 'peer0']);
     echo();
@@ -96,7 +142,7 @@ async function request(host, portNumber, allow) {
   if (mode === 'discover-send') {
     const socket = dgram.createSocket('udp4');
     const tag = process.argv[3], udpPort = Number(process.argv[4]);
-    await new Promise((resolve, reject) => socket.bind(0, `10.${n}.0.2`, () => {
+    await new Promise((resolve, reject) => socket.bind(0, process.argv[5] || `10.${n}.0.2`, () => {
       socket.send(Buffer.from('DUAL-TEST-' + tag), udpPort, `10.${n}.0.1`, error => error ? reject(error) : resolve());
     }));
     socket.close(); return;

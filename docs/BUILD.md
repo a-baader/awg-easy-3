@@ -43,4 +43,7 @@ pnpm run check
 
 Секреты, data/, data-wg/, .env и backups не должны попадать в Git или build
 context. Перед публикацией образов/релизов требуется отдельное разрешение.
-Dual Compose и полная E2E-матрица добавляются на следующих этапах.
+Dual Compose: docker-compose.dual.yml. Обязательные сетевые, миграционные и
+аварийные тесты и их ограничения перечислены в TEST_REPORT.md.
+CI собирает оба target без публикации; публикация требует отдельного ручного
+workflow_dispatch с явно включённым publish для выбранного release tag.

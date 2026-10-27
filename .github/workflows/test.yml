@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - master
+      - feature/vpn-easy-dual
   pull_request:
 
 permissions:
@@ -30,6 +31,13 @@ jobs:
           sh -n ../install.sh
           sh -n ../awg-easy-3
           sh -n ../lib/auto-update.sh
+          sh -n ../vpnctl
+          sh -n ../lib/dual-dependencies.sh
+      - name: Проверки host manager без изменения хоста
+        run: |
+          python3 ../scripts/test-vpnctl.py
+          python3 ../scripts/test-dual-preflight.py
+          python3 -m py_compile ../lib/vpnctl_manager.py ../lib/vpnctl_backup.py ../lib/vpnctl_common.py
 
   container:
     runs-on: ubuntu-latest
@@ -80,3 +88,49 @@ jobs:
             -v "$PWD/scripts/awg-regression_test.go:/src/device/easy_regression_test.go:ro" \
             --entrypoint go awg-easy-3:engine-tests \
             test ./device -run '^TestEasy' -count=5 -timeout=2m
+
+  dual:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.18.0
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          target: awg
+          platforms: linux/amd64
+          push: false
+          load: true
+          tags: vpn-easy-awg:dual-stage7
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          target: wg
+          platforms: linux/amd64
+          push: false
+          load: true
+          tags: vpn-easy-wg:dual-stage7
+      - name: Проверка стандартных WG tools и Compose
+        run: |
+          docker run --rm --network none --entrypoint wg vpn-easy-wg:dual-stage7 --version
+          docker run --rm --network none --entrypoint wireguard-go vpn-easy-wg:dual-stage7 --version
+          docker run --rm --network none --entrypoint sh vpn-easy-wg:dual-stage7 -c '! command -v awg && ! command -v amneziawg-go'
+          docker compose -f docker-compose.dual.yml config -q
+          sudo modprobe tun
+      - name: Dual packet tests в одноразовой сети
+        run: node scripts/test-dual-network.cjs vpn-easy-awg:dual-stage7 vpn-easy-wg:dual-stage7
+      - name: Host manager, миграция и аварийное восстановление
+        env:
+          TEST_AWG_IMAGE: vpn-easy-awg:dual-stage7
+          TEST_WG_IMAGE: vpn-easy-wg:dual-stage7
+        run: |
+          python3 scripts/test-dependency-bootstrap.py
+          sudo -E python3 scripts/test-vpnctl-integration.py
+          sudo -E python3 scripts/test-vpnctl-migration.py
+          sudo -E python3 scripts/test-vpnctl-recovery.py
+          sudo -E python3 scripts/test-vpnctl-packet-probes.py
+          sudo -E python3 scripts/test-vpnctl-uninstall.py

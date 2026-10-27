@@ -142,3 +142,114 @@ stage6-migration-recovery-final.log, stage6-node-durability.log,
 stage6-recovery-unit-final.log в /app/srv_awg/dual-work/evidence/.
 SIGKILL и остановка контейнеров не заменяют отключение питания или reboot VM:
 T23 и reboot в середине транзакции остаются непроверенными.
+
+## Этап 7: расширенная матрица и CI
+
+Оба target повторно собраны с локальными тегами dual-stage7. Полный набор
+Node: **256/256**, Python manager: **23/23**, preflight: **2/2**.
+Фактическая версия package.json обоих образов сверяется с release manifest;
+несовпадение отвергается до snapshot и изменений состояния. YAML workflows,
+Compose config, POSIX shell и Python/Node syntax проверены локально.
+
+В сетевых тестах обнаружен и исправлен обход собственной панели через DNAT
+публичного порта. Для Dual добавлен общий запрет ct status dnat от VPN-клиента
+до разрешений Home. Положительные контроли используют работающий host listener
+и существующую WG-панель; проверены IPv4 и IPv6. Отдельный Docker-адрес
+принудительно направляется через клиентский туннель с fwmark для внешнего UDP.
+
+| Сценарий ТЗ | Результат в disposable окружении |
+| --- | --- |
+| T01–T04: AWG/WG Home/Guest → Internet | IPv4/IPv6 HTTP через NAT к WAN-стенду; DNS отдельно подтверждён пакетным probe |
+| T05–T06: Home A ↔ Home B | HTTP в обоих направлениях, IPv4/IPv6 |
+| T07–T08: Guest → Home/своя панель | Запрещено |
+| T09–T12: чужая панель и VPN subnet | Запрещено для IPv4/IPv6 |
+| T13: WAN → панели | Запрещено при наличии маршрута к действующему listener |
+| T14: IPv4/IPv6 permissions | Включение/отзыв семейства проверены на работающих peer без замены профиля |
+| T15: отключение peer | Перед отзывом установлен keep-alive TCP-поток; после отзыва счётчик доставленных данных перестал расти |
+| T16: GeoIP | Synthetic allow/block, пустой allow set и потеря базы проверены для обоих backend |
+| T17: mDNS/SSDP | Home fan-out; нет доставки Guest/WAN/чужому VPN; Guest-origin не ретранслируется |
+| T18–T19: независимый restart | Другая VPN продолжает передавать HTTP к панели и WAN; прежний клиент переподключается без изменения профиля |
+| T20: backup/restore | Реальный partial restore и rollback после прерывания restore прошли |
+| T21: отказ update | Проверены healthcheck failure, SIGKILL и сохранение подтверждённой записи после commit |
+| T22: исходный AWG 0.1.6 → Dual | Старый клиент и профиль сохранены, HTTP до/после миграции; прерывание до snapshot восстановлено |
+| T23: reboot хоста | **Отложено пользователем, не проверено** |
+| T24: повторный install/update | Данные/ключи сохраняются, повторный install не переинициализирует; update/recovery проверены повторными транзакциями |
+| T25–T26: uninstall одного VPN | Реальный peer оставшегося VPN передаёт HTTP к панели и через WAN NAT; image не изменён, чужая nft table сохранена |
+
+GeoIP использует synthetic labels/prefixes, а не фактическую геолокацию
+тестовых адресов. При утрате базы и сохранённых ограничениях исходная логика
+отказывает в старте соответствующего VPN (fail-closed); второй VPN продолжает
+работать. После возврата базы экземпляр запускается с прежним профилем.
+Это сохранение исходного поведения, а не новый режим разрешения без базы.
+
+Дополнительно прошёл исходный scripts/test-awg-upgrade.cjs с образом
+предыдущего выпуска 0.1.5: клиенты не перезапускались, проверены сохранение
+всех exports/состояния, 2 MiB HTTP IPv4/IPv6, ограничения семейств, upgrade и
+rollback сервера. Лог stage7-original-upgrade-regression.log.
+
+CI конфигурирует сборку обоих образов и эти тесты в Ubuntu runner. Публикация
+по push/tag отключена; отдельный workflow_dispatch требует явного publish=true.
+GitHub Actions **не запускались** в текущем локальном испытании; проверены
+синтаксис и соответствующие локальные команды. Образы/релиз не публиковались.
+
+Основные логи в /app/srv_awg/dual-work/evidence/:
+
+- stage7-network-matrix.log — расширенные сетевые сценарии;
+- stage7-uninstall-packets.log — T25/T26 с реальным peer;
+- stage7-uninstall-integration.log — CRUD/update/restore/uninstall;
+- stage7-node-final.log, stage7-manager-final.log — unit/regression;
+- stage7-release-image-version.log — версии настоящих образов.
+
+Для воспроизведения T25/T26:
+
+```sh
+TEST_AWG_IMAGE=vpn-easy-awg:dual-stage7 TEST_WG_IMAGE=vpn-easy-wg:dual-stage7 \
+  sudo -E python3 scripts/test-vpnctl-uninstall.py
+```
+
+## Границы текущей приёмки
+
+По прямому указанию пользователя reboot-тесты отложены: не выполнены T23 и
+перезагрузка VM в середине update/restore. QEMU и /dev/kvm в среде отсутствуют;
+рабочий хост/VPS не перезагружался. SIGKILL и restart контейнеров не считаются
+заменой reboot/power-loss испытания. Браузерная проверка также отложена.
+
+Не проверены официальные приложения Windows/Android/iOS, реальный внешний
+Internet и автоматическая установка зависимостей на всех заявленных
+дистрибутивах. NixOS проверен как генерация декларативной инструкции, без
+nixos-rebuild. При отдельном host firewall с INPUT DROP необходимо разрешение
+входа со своего VPN-интерфейса, описанное в NETWORK_SECURITY.ru.md.
+
+Автоматизированные локальные проверки завершены в указанных пределах.
+**Полная Definition of Done, включающая reboot и полевые проверки, не объявляется
+выполненной.** Публикация и применение к рабочему VPS не выполнялись.
+
+
+## Дополнительные проверки финальной ревизии
+
+Повторное восстановление после rollback теперь имеет собственную устойчивую
+фазу rollback_committed. Реальный SIGKILL после неё с последующей принятой
+записью клиента подтвердил, что повторный recover не заменяет эту запись
+старым snapshot. При неопределённом результате записи commit на диск
+автоматический rollback/thaw запрещён: сохраняется maintenance, требуется
+исправление хранения и recover по сохранённому журналу.
+
+Миграционный тест также искусственно отказывает после успешного запуска нового
+WG: исходные image/state AWG и HTTP прежнего клиента восстановлены; следующая
+миграция проходит. Логи: stage7-recovery-rollback-window.log и
+stage7-migration-rollback-final.log.
+
+Владение контейнером проверяется и перед каждым control RPC, включая изменение
+клиента и сброс пароля: image ID, mount, host networking и Compose service.
+Несовпадение блокируется до docker exec. Изменение через чужой mount проверено
+unit-тестом; T25/T26 повторены с реальными control RPC и peer-пакетами
+(stage7-uninstall-owned-control.log).
+
+Дополнительно отдельно проверены Home A, Home B и Guest обоих протоколов против
+чужих IPv4/IPv6 панелей и клиентов, Guest к своей IPv6 панели/Home и WAN→DNAT.
+Лог stage7-all-peer-isolation.log. Сборка обоих target через метод vpnctl --build
+прошла на Docker без buildx с выбором доступного legacy builder
+(stage7-manager-build.log). Миграция экспериментальных версий (например 0.3.0)
+отвергается до изменения данных; повторный install настроенного Dual не
+запускает legacy detection. Оригинальный образ по digest отдельно подтвердил
+package version 0.1.6 (stage7-original-version.log).

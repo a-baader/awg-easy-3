@@ -46,7 +46,7 @@ socket своего адреса. Фильтрация source/Home и цели f
 ## Проверка
 
 ```bash
-node scripts/test-dual-network.cjs vpn-easy-awg:dual-stage4 vpn-easy-wg:dual-stage4
+node scripts/test-dual-network.cjs vpn-easy-awg:dual-stage7 vpn-easy-wg:dual-stage7
 python3 scripts/test-dual-preflight.py
 ```
 
@@ -57,3 +57,17 @@ namespace. Тестовые адреса Internet — алиасы в однор
 публичные серверы не используются. Перезапуски проверяются с неизменёнными
 профилями и без перезапуска клиентов, с ожиданием обычных handshake timers.
 Фактические результаты и ещё не проверенные сценарии — в TEST_REPORT.md.
+
+## Запрет обхода через DNAT
+
+До разрешений собственной панели и Home-to-Home Dual проверяет ct status dnat
+для пакетов, пришедших с собственного VPN-интерфейса, и отбрасывает их для
+IPv4/IPv6. Иначе публичный порт VPS с DNAT к собственной панели мог бы пройти
+проверку уже переписанного destination IP. Эта защита не изменяет чужие NAT
+таблицы и не препятствует обычному исходящему masquerade/SNAT VPN→Internet.
+
+Тест создаёт настоящий host listener с положительным WAN-контролем и отдельные
+DNAT-правила к работающей WG-панели. Home и Guest проверяются по публичным
+IPv4/IPv6 и Docker-адресу. Docker-адрес в клиентском стенде принудительно
+маршрутизируется в VPN; внешний UDP движка отделён fwmark, чтобы тест не
+обходил туннель по непосредственно подключённой сети Docker.

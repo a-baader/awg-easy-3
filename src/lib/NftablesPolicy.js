@@ -183,7 +183,8 @@ table inet ${tableName} {
 ${ipv6Sets}${geo.sets}
   chain client_permissions {
     iifname ${quote(awg)} ip saddr != @active4 drop comment "IPv4 permission: from VPN client"
-    oifname ${quote(awg)} ip daddr != @active4 drop comment "IPv4 permission: to VPN client"${ipv6PermissionRules}
+    oifname ${quote(awg)} ip daddr != @active4 drop comment "IPv4 permission: to VPN client"${ipv6PermissionRules}${isolation ? `
+    iifname ${quote(awg)} ct status dnat drop comment "Запрет доступа VPN через DNAT"` : ''}
   }
 
   chain input {

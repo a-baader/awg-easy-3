@@ -118,12 +118,32 @@ try:
         except ManagerError:time.sleep(.5)
     assert connected,'Старый клиент не переподключился после восстановления исходного сервера'
     passed('SIGKILL до миграционного snapshot: исходный контейнер и прежний клиент восстановлены')
+    original_health=manager.health;failed=[False]
+    def fail_wg_health(item):
+        original_health(item)
+        if item.get('backend')=='wireguard' and not failed[0]:
+            failed[0]=True;raise ManagerError('Искусственный отказ WG после запуска')
+    manager.health=fail_wg_health
+    with mock.patch('vpnctl_manager.environment_check',return_value={'fixture':'disposable'}):
+        try:manager.install(args)
+        except ManagerError:pass
+        else:raise AssertionError('Ожидался отказ миграции')
+    manager.health=original_health
+    assert failed[0] and manager.config(False) is None and not manager.journal.exists()
+    assert (data/'state.json').read_bytes()==state_before
+    assert manager.inspect_container(prefix+'-awg')['Image']==image_id
+    connected=False
+    for _ in range(18):
+        try:execute(traffic);connected=True;break
+        except ManagerError:time.sleep(.5)
+    assert connected,'Клиент не передаёт HTTP после rollback миграции'
+    passed('отказ нового WG: восстановлены исходные image/state AWG и HTTP старого клиента')
     with mock.patch('vpnctl_manager.environment_check',return_value={'fixture':'disposable'}):manager.install(args)
     cfg=manager.config()
     assert (data/'state.json').read_bytes()==state_before and (data/'probe.conf').read_bytes()==native_before
     assert cfg['components']['awg']['udp_port']==54321
     assert (legacy/'updater-disabled').is_file()
-    backups=list((manager.root/'backups').glob('before-migration-*.tar.gz'));assert len(backups)==1
+    backups=list((manager.root/'backups').glob('before-migration-*.tar.gz'));assert len(backups)==2
     from vpnctl_backup import verify_archive
     assert verify_archive(backups[0])['schemas']['awg']==1
     passed('миграция сохранила состояние, ключи, auth, ограничения, порт и .conf; snapshot проверен')

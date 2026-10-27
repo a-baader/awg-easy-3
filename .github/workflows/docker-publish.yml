@@ -1,17 +1,25 @@
 name: Build and Push Docker Image
 
 on:
-  push:
-    tags:
-      - 'v*'
   workflow_dispatch:
+    inputs:
+      publish:
+        description: 'Явно разрешить публикацию обоих образов и релиза выбранного тега'
+        type: boolean
+        required: true
+        default: false
 
 env:
   REGISTRY: ghcr.io
-  IMAGE_NAME: ${{ github.repository }}
 
 jobs:
   build-and-push:
+    if: github.event_name == 'workflow_dispatch' && inputs.publish == true
+    strategy:
+      matrix:
+        backend: [awg, wg]
+    env:
+      IMAGE_NAME: ${{ github.repository }}-${{ matrix.backend }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -81,6 +89,7 @@ jobs:
         with:
           context: .
           platforms: linux/amd64
+          target: ${{ matrix.backend }}
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
@@ -89,7 +98,7 @@ jobs:
 
   release:
     needs: build-and-push
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: github.event_name == 'workflow_dispatch' && inputs.publish == true && startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     permissions:
       contents: write

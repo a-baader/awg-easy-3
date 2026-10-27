@@ -1,4 +1,11 @@
-# AWG-Easy 3
+# VPN Easy Dual
+
+> Рабочая ветка **VPN Easy Dual**: два контейнера AWG/WG и единый host CLI.
+> Для установки используйте [INSTALL_DUAL.ru.md](docs/INSTALL_DUAL.ru.md),
+> для сборки — [BUILD.md](docs/BUILD.md), для команд — [CLI.ru.md](docs/CLI.ru.md).
+> Состояние приёмки и непроверенные сценарии — [TEST_REPORT.md](docs/TEST_REPORT.md).
+> Описание ниже относится к исходному выпуску AWG-Easy 3 0.1.6.
+
 
 [English](README.md) | [Русский](README.ru.md) | [فارسی](README.fa.md) | [Español](README.es.md) | [简体中文](README.zh-CN.md)
 

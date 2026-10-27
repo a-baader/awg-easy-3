@@ -11,7 +11,7 @@ import unittest
 from unittest import mock
 
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]/'lib'))
-from vpnctl_manager import Manager,build_parser
+from vpnctl_manager import Manager,build_parser,main
 from vpnctl_common import ManagerError,atomic_json,atomic_write,global_lock
 from vpnctl_backup import create_archive,verify_archive,extract_component
 
@@ -47,6 +47,7 @@ class FakeManager(Manager):
     def inspect_container(self,name):return None
     def compose(self,*args):self.calls.append(['compose',*args]);return ''
     def validate_state_image(self,item,directory=None):return None
+    def validate_release_image(self,item,version):return None
     def check_plan(self,candidate,previous=None):return None
     def health(self,item):
         if item['image']==self.fail_image:
@@ -107,6 +108,23 @@ class Checks(unittest.TestCase):
         self.assertEqual(target.read_bytes(),before)
         self.assertEqual(self.manager.config()['components']['wg']['image'],OLD)
         self.assertFalse(self.manager.journal.exists())
+    def test_manifest_version_must_match_actual_image_package(self):
+        self.manager.run=lambda args,**kwargs:'0.1.6\n'
+        Manager.validate_release_image(self.manager,{'image':OLD},'0.1.6')
+        with self.assertRaisesRegex(ManagerError,'не совпадает'):
+            Manager.validate_release_image(self.manager,{'image':OLD},'0.2.0')
+        self.assertFalse(self.manager.path.exists());self.assertFalse(self.manager.journal.exists())
+    def test_legacy_migration_rejects_experimental_version_before_data_changes(self):
+        cfg=config(self.root);directory=cfg['components']['awg']['data_directory']
+        self.manager.inspect_container=lambda name:{'Image':OLD,'HostConfig':{'NetworkMode':'host'},
+            'Mounts':[{'Source':directory,'Destination':'/data'}],
+            'Config':{'Labels':{'com.docker.compose.service':'awg-easy','com.docker.compose.project.working_dir':str(self.root)},'Env':[]}}
+        self.manager.run=lambda args,**kwargs:'0.3.0\n'
+        self.manager.validate_release_image=lambda item,version:Manager.validate_release_image(self.manager,item,version)
+        before=(Path(directory)/'state.json').read_bytes()
+        with self.assertRaisesRegex(ManagerError,'исходный AWG 0.1.6'):Manager.legacy(self.manager)
+        self.assertEqual((Path(directory)/'state.json').read_bytes(),before)
+        self.assertFalse(self.manager.journal.exists())
     def test_recovery_after_commit_keeps_new_state(self):
         cfg=config(self.root);self.manager.write_config(cfg)
         candidate=copy.deepcopy(cfg);candidate['components']['wg']['image']=BAD
@@ -122,6 +140,27 @@ class Checks(unittest.TestCase):
         self.assertNotIn('maintenance_components',self.manager.config())
         self.assertFalse(self.manager.journal.exists())
         self.assertIn(['compose','up','-d','--no-deps','wg-easy'],self.manager.calls)
+    def test_repeated_recover_after_rollback_preserves_new_acknowledged_write(self):
+        cfg=config(self.root);self.manager.write_config(cfg)
+        snapshot=self.manager.backup('wg',str(self.root/'before-rollback.tar.gz'))['file']
+        target=Path(cfg['components']['wg']['data_directory'])/'state.json'
+        atomic_json(target,{'version':3,'server':{'backend':'wireguard'},'acknowledged':'Запись после rollback'})
+        before=target.read_bytes()
+        candidate=copy.deepcopy(cfg);candidate['components']['wg']['image']=BAD
+        journal={'operation':'update','phase':'rollback_committed','previous':cfg,'candidate':candidate,'selected':['wg'],'snapshot':snapshot}
+        self.manager.save_journal(journal);self.manager.rollback(journal)
+        self.assertEqual(target.read_bytes(),before);self.assertEqual(self.manager.config()['components']['wg']['image'],OLD)
+        self.assertFalse(self.manager.journal.exists())
+    def test_uncertain_commit_storage_failure_keeps_maintenance_and_requires_recover(self):
+        cfg=config(self.root);self.manager.write_config(cfg)
+        journal={'operation':'update','phase':'snapshot_verified','previous':cfg,'candidate':cfg,'selected':['wg']}
+        self.manager.save_journal(journal)
+        with mock.patch.object(self.manager,'save_journal',side_effect=OSError('Искусственный отказ fsync')):
+            with self.assertRaises(OSError):self.manager.commit_transaction(journal)
+        with self.assertRaises(ManagerError) as caught:self.manager.rollback(journal)
+        self.assertEqual(caught.exception.code,75)
+        self.assertEqual(self.manager.config()['maintenance_components'],['wg'])
+        self.assertTrue(self.manager.journal.exists());self.assertFalse(self.manager.calls)
     def test_legacy_recovery_before_snapshot_restarts_original_without_state_changes(self):
         cfg=config(self.root);item=cfg['components']['awg']
         previous=copy.deepcopy(cfg);previous['components']={'awg':item};previous['legacy_origin']={'running':True}
@@ -145,6 +184,20 @@ class Checks(unittest.TestCase):
         with self.assertRaisesRegex(ManagerError,'владение'):self.manager.rollback(journal)
         self.assertEqual(self.manager.path.read_bytes(),before)
         self.assertFalse(self.manager.calls);self.assertTrue(self.manager.journal.exists())
+    def test_control_mutation_rejects_foreign_mount_before_docker_exec(self):
+        cfg=config(self.root);item=cfg['components']['wg']
+        info={'Image':OLD,'Mounts':[{'Source':'/foreign-data','Destination':'/data'}],
+            'HostConfig':{'NetworkMode':'host'},'Config':{'Labels':{'com.docker.compose.service':'wg-easy'}}}
+        self.manager.inspect_container=lambda name:info
+        with self.assertRaisesRegex(ManagerError,'владение'):self.manager.rpc(item,'client.remove',{'name':'admin'})
+        self.assertFalse(self.manager.calls)
+        info['Mounts'][0]['Source']=item['data_directory']
+        calls=[]
+        def run(args,**kwargs):calls.append((args,kwargs));return '{"ok":true,"value":{"accepted":true}}'
+        self.manager.run=run
+        self.assertTrue(self.manager.rpc(item,'client.add',{'name':'Тестовый','group':'guest'})['accepted'])
+        self.assertEqual(calls[0][0][:3],['docker','exec','-i'])
+        self.assertEqual(json.loads(calls[0][1]['input'])['args']['name'],'Тестовый')
     def test_partial_registration_rolls_back_only_owned_files(self):
         cfg=config(self.root)
         journal={'operation':'install','phase':'prepared','previous':None,'candidate':cfg,'selected':['awg','wg']}
@@ -222,6 +275,13 @@ class Checks(unittest.TestCase):
         args=build_parser().parse_args(['install'])
         result=self.manager.install(args)
         self.assertTrue(result['unchanged']);self.assertFalse(self.manager.calls)
+    def test_cli_idempotent_install_does_not_run_legacy_detection(self):
+        self.manager.write_config(config(self.root));output=io.StringIO()
+        with mock.patch('vpnctl_manager.Manager',return_value=self.manager),mock.patch('vpnctl_manager.os.geteuid',return_value=0),mock.patch.object(self.manager,'legacy',side_effect=AssertionError('Legacy не должен проверяться')):
+            with mock.patch('vpnctl_manager.global_lock',return_value=global_lock(self.root/'lock',self.root/'legacy-lock')),mock.patch('sys.stdout',output):
+                self.assertEqual(main(PROJECT,['install','--yes','--json']),0)
+        self.assertTrue(json.loads(output.getvalue())['unchanged'])
+        self.assertFalse(self.manager.calls)
     def test_bootstrap_does_not_persist_panel_password(self):
         cfg=config(self.root)
         item=cfg['components']['wg'];directory=self.root/'new-wg';item['data_directory']=str(directory)
