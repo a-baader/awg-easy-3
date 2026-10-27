@@ -51,6 +51,17 @@ class Contract(unittest.TestCase):
         with mock.patch.dict(os.environ,{'AWG_PORT':'65536'}),mock.patch('sys.stderr',io.StringIO()):
             with self.assertRaises(SystemExit) as error:self.args(['install'])
         self.assertEqual(error.exception.code,64)
+    def test_endpoint_uses_route_get_source_including_private_address_like_original(self):
+        original=self.manager.run
+        def run(args,**kwargs):
+            if args==['ip','-j','-4','route','get','1.1.1.1']:
+                return json.dumps([{'dev':'eth1','prefsrc':'172.16.0.2'}])
+            return original(args,**kwargs)
+        self.manager.run=run
+        args=self.args(['install','--data-root',str(self.root/'new-data')])
+        with mock.patch.dict(os.environ,{},clear=True):plan=self.manager.plan_install(args)
+        for item in plan['components'].values():
+            self.assertEqual(item['endpoint'],'172.16.0.2');self.assertEqual(item['wan_interface'],'eth1')
     def test_empty_environment_port_is_invalid(self):
         with mock.patch.dict(os.environ,{'AWG_PORT':''}),mock.patch('sys.stderr',io.StringIO()):
             with self.assertRaises(SystemExit):self.args(['install'])

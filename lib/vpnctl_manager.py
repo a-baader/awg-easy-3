@@ -369,14 +369,12 @@ class Manager:
         for item in (existing or {}).get('components',{}).values():
             self.reserved_ports.update({('udp',item['udp_port']),('tcp',item['panel_port'])})
         endpoint=args.host or next((item.get('endpoint') for item in (existing or {}).get('components',{}).values() if item.get('endpoint')),None)
-        routes=json.loads(self.run(['ip','-j','-4','route','show','default']))
-        candidates=sorted([r for r in routes if r.get('dev')],key=lambda r:r.get('metric',0))
-        if not candidates: raise ManagerError('Не найден IPv4 default route',65)
-        wan=candidates[0]['dev']
-        addresses=json.loads(self.run(['ip','-j','-4','address','show','dev',wan]))
+        routes=json.loads(self.run(['ip','-j','-4','route','get','1.1.1.1']))
+        if not routes or not routes[0].get('dev'):raise ManagerError('Не найден IPv4 маршрут к Internet',65)
+        wan=routes[0]['dev']
         if not endpoint:
-            endpoint=next((a['local'] for link in addresses for a in link.get('addr_info',[]) if a.get('scope')=='global'),None)
-            if not endpoint or not ipaddress.ip_address(endpoint).is_global: raise ManagerError('Укажите публичный IP или домен через --host',64)
+            endpoint=routes[0].get('prefsrc') or routes[0].get('src')
+            if not endpoint:raise ManagerError('Не удалось определить endpoint; укажите --host',64)
         try:
             ipaddress.ip_address(endpoint)
             if '%' in endpoint: raise ValueError()
