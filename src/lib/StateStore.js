@@ -211,6 +211,9 @@ class StateStore {
       handle = undefined;
       await fs.rename(temporaryPath, this.filePath);
       await fs.chmod(this.filePath, 0o600);
+      // Сохранённая запись не должна исчезать после перезагрузки из-за потери rename.
+      const directoryHandle = await fs.open(directory, 'r');
+      try { await directoryHandle.sync(); } finally { await directoryHandle.close(); }
     } catch (error) {
       if (handle) await handle.close().catch(() => {});
       await fs.unlink(temporaryPath).catch(() => {});

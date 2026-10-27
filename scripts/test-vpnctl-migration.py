@@ -63,6 +63,9 @@ class IsolatedManager(Manager):
 
 def passed(message):print('PASS: '+message,flush=True)
 import time
+import multiprocessing
+import signal
+from vpnctl_common import global_lock
 original='ghcr.io/alexsemenovru/awg-easy-3@sha256:4a218ff42b401fd84a25c576090a42d52e204d8f3b4fd530ec352021580199ec'
 helper=PROJECT/'scripts/test-awg-container.cjs'
 legacy=root/'legacy';legacy.mkdir();data=legacy/'data';data.mkdir(mode=0o700)
@@ -97,6 +100,24 @@ try:
     execute(traffic);passed('профиль создан оригинальным 0.1.6, клиент передаёт HTTP до миграции')
     parsed=manager.legacy();assert parsed['item']['udp_port']==54321
     args=build_parser().parse_args(['install','--host',host,'--data-root',str(root/'new'),'--awg-image',images['awg'],'--wg-image',images['wg'],'--yes'])
+    def interrupted_migration():
+        def stop_before_snapshot(*_args,**_kwargs):os.kill(os.getpid(),signal.SIGKILL)
+        with global_lock(root/'global.lock',root/'legacy.lock'):
+            with mock.patch('vpnctl_manager.environment_check',return_value={'fixture':'disposable'}),mock.patch('vpnctl_manager.create_archive',side_effect=stop_before_snapshot):
+                IsolatedManager().install(args)
+    process=multiprocessing.get_context('fork').Process(target=interrupted_migration)
+    process.start();process.join(timeout=120)
+    if process.is_alive():process.kill();process.join();raise AssertionError('Не достигнута точка прерывания миграции')
+    assert process.exitcode==-signal.SIGKILL
+    with global_lock(root/'global.lock',root/'legacy.lock',recovery_journal=manager.journal):
+        manager.rollback(json.loads(manager.journal.read_text()))
+    assert (data/'state.json').read_bytes()==state_before and not manager.journal.exists()
+    connected=False
+    for _ in range(18):
+        try:execute(traffic);connected=True;break
+        except ManagerError:time.sleep(.5)
+    assert connected,'Старый клиент не переподключился после восстановления исходного сервера'
+    passed('SIGKILL до миграционного snapshot: исходный контейнер и прежний клиент восстановлены')
     with mock.patch('vpnctl_manager.environment_check',return_value={'fixture':'disposable'}):manager.install(args)
     cfg=manager.config()
     assert (data/'state.json').read_bytes()==state_before and (data/'probe.conf').read_bytes()==native_before

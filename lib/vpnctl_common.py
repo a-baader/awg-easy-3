@@ -18,9 +18,9 @@ def atomic_write(path, data, mode=0o600):
     fd, temporary = tempfile.mkstemp(prefix='.' + path.name + '-', dir=path.parent)
     try:
         with os.fdopen(fd, 'wb') as target:
+            os.fchmod(target.fileno(),mode)
             target.write(data.encode() if isinstance(data, str) else data)
             target.flush(); os.fsync(target.fileno())
-        os.chmod(temporary, mode)
         os.replace(temporary, path)
         directory_fd=os.open(path.parent,os.O_RDONLY|getattr(os,'O_DIRECTORY',0))
         try: os.fsync(directory_fd)
@@ -30,6 +30,13 @@ def atomic_write(path, data, mode=0o600):
 
 def atomic_json(path, value):
     atomic_write(path, json.dumps(value, ensure_ascii=False, indent=2) + '\n')
+
+def durable_replace(source,target):
+    os.replace(source,target)
+    for parent in {Path(source).parent,Path(target).parent}:
+        fd=os.open(parent,os.O_RDONLY|getattr(os,'O_DIRECTORY',0))
+        try:os.fsync(fd)
+        finally:os.close(fd)
 
 def execute(args, *, input=None, check=True, env=None, merge_stderr=False):
     try:

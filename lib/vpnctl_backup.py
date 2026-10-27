@@ -50,9 +50,13 @@ def create_archive(config, selected, output):
                 with source.open('rb') as stream: archive.addfile(info, stream)
         os.chmod(temporary,0o600)
         verify_archive(temporary)
+        with open(temporary,'rb') as stream:os.fsync(stream.fileno())
         # link не используется: workspace и некоторые VPS FS не поддерживают hard links.
         if output.exists(): raise ManagerError('Файл резервной копии появился во время записи',73)
         os.replace(temporary,output)
+        fd=os.open(output.parent,os.O_RDONLY|getattr(os,'O_DIRECTORY',0))
+        try:os.fsync(fd)
+        finally:os.close(fd)
         return {'file':str(output),'components':list(selected),'files':len(files),'verified':True}
     finally:
         if os.path.exists(temporary): os.unlink(temporary)
@@ -107,8 +111,14 @@ def extract_component(filename, name, directory):
                 relative=PurePosixPath(member.name[len(prefix):])
                 target=destination.joinpath(*relative.parts)
                 target.parent.mkdir(parents=True,exist_ok=True,mode=0o700)
-                with archive.extractfile(member) as source, target.open('xb') as output: shutil.copyfileobj(source,output)
+                with archive.extractfile(member) as source, open(target,'xb',opener=lambda path,flags:os.open(path,flags,0o600)) as output:
+                    shutil.copyfileobj(source,output);output.flush();os.fsync(output.fileno())
                 target.chmod(0o600)
+        directories=[destination,*[item for item in destination.rglob('*') if item.is_dir()]]
+        for directory in sorted(directories,key=lambda value:len(value.parts),reverse=True):
+            fd=os.open(directory,os.O_RDONLY|getattr(os,'O_DIRECTORY',0))
+            try:os.fsync(fd)
+            finally:os.close(fd)
     except BaseException:
         shutil.rmtree(destination)
         raise

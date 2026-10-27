@@ -105,7 +105,12 @@ def inspect_conflicts(instances, *, owned=None, run=execute):
     container_names = {item.get('Names') for item in containers}
     published = []
     for container in containers:
-        ports = json.loads(run(['docker', 'inspect', '--format', '{{json .NetworkSettings.Ports}}', container['ID']]) or 'null') or {}
+        try: raw=run(['docker', 'inspect', '--format', '{{json .NetworkSettings.Ports}}', container['ID']])
+        except RuntimeError:
+            # Одноразовый контейнер мог завершиться между ps и inspect.
+            if not run(['docker','ps','-aq','--filter','id='+container['ID']]).strip():continue
+            raise
+        ports = json.loads(raw or 'null') or {}
         for key, bindings in ports.items():
             port_protocol = key.rsplit('/', 1)[-1]
             for binding in bindings or []:

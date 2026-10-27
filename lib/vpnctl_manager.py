@@ -1,5 +1,6 @@
 """Единый host manager VPN Easy Dual. Секреты не передаются через argv."""
 import argparse
+import base64
 from contextlib import contextmanager
 from datetime import datetime, timezone
 import copy
@@ -18,7 +19,7 @@ import time
 import uuid
 
 from dual_preflight import PreflightError, environment_check, inspect_conflicts, validate_instances
-from vpnctl_common import ManagerError, atomic_json, atomic_write, execute, global_lock, redact
+from vpnctl_common import ManagerError, atomic_json, atomic_write, execute, global_lock, redact, durable_replace
 from vpnctl_backup import create_archive, verify_archive, extract_component
 
 class Parser(argparse.ArgumentParser):
@@ -185,6 +186,11 @@ class Manager:
 
     def freeze(self,journal):
         # Сначала сохраняется намерение: recover снимет запрет и после аварии RPC.
+        if 'running_before' not in journal:
+            journal['running_before']=[]
+            for name in journal['selected']:
+                info=self.inspect_container(journal['previous']['components'][name]['container'])
+                if info and info['State'].get('Running'):journal['running_before'].append(name)
         self.save_journal(journal)
         config=copy.deepcopy(journal['previous'])
         config['maintenance_components']=journal['selected']
@@ -204,15 +210,16 @@ class Manager:
         self.finish_committed(journal)
 
     def finish_committed(self,journal):
+        self.verify_transaction_containers(journal)
         candidate=copy.deepcopy(journal['candidate']);candidate.pop('maintenance_components',None)
         self.write_config(candidate)
         for name in journal['selected']:
             if name not in candidate['components']: continue
             item=candidate['components'][name]
+            # Recover запускает и контейнер, остановленный в момент аварии.
+            self.compose('up','-d','--no-deps',name+'-easy');self.health(item)
             info=self.inspect_container(item['container'])
             if info and info['State'].get('Running'):
-                # Убирается и сохранённый Docker Env, иначе restart снова запретит запись.
-                self.compose('up','-d','--no-deps',name+'-easy');self.health(item)
                 self.rpc(item,'maintenance.end')
         self.journal.unlink(missing_ok=True)
 
@@ -370,7 +377,11 @@ class Manager:
         if self.run(['ss','-Hlun' if protocol=='udp' else '-Hltn','sport = :'+str(port)]).strip(): return True
         identifiers=self.run(['docker','ps','-q']).split()
         for identifier in identifiers:
-            ports=json.loads(self.run(['docker','inspect','--format','{{json .NetworkSettings.Ports}}',identifier]) or 'null') or {}
+            raw=self.run(['docker','inspect','--format','{{json .NetworkSettings.Ports}}',identifier],check=False)
+            if raw is None:
+                if not self.run(['docker','ps','-aq','--filter','id='+identifier]).strip():continue
+                raise ManagerError('Не удалось проверить порты существующего контейнера',73)
+            ports=json.loads(raw or 'null') or {}
             if any(key.endswith('/'+protocol) and any(int(b['HostPort'])==port for b in bindings or []) for key,bindings in ports.items()): return True
         return False
 
@@ -423,11 +434,36 @@ class Manager:
 
     def register(self,config):
         records={}
+        if self.journal.exists():
+            journal=json.loads(self.journal.read_text())
+            if 'manager_files_before' not in journal:
+                journal['manager_files_before']={}
+                for filename,(content,_mode) in self.system_files().items():
+                    journal['manager_files_before'][str(filename)]={
+                        'before':base64.b64encode(filename.read_bytes()).decode() if filename.exists() else None,
+                        'mode':filename.stat().st_mode&0o777 if filename.exists() else None,
+                        'after_sha256':hashlib.sha256(content.encode() if isinstance(content,str) else content).hexdigest()}
+                self.save_journal(journal)
         for filename,(content,mode) in self.system_files().items():
             atomic_write(filename,content,mode)
             records[str(filename)]=hashlib.sha256(content.encode() if isinstance(content,str) else content).hexdigest()
         config['manager_files']=records
         self.write_config(config)
+
+    def restore_manager_files(self,journal):
+        allowed={str(filename) for filename in self.system_files()}
+        for filename,record in journal.get('manager_files_before',{}).items():
+            if filename not in allowed:raise ManagerError('Неизвестный системный путь в журнале восстановления',65)
+            path=Path(filename)
+            before=base64.b64decode(record['before'],validate=True) if record['before'] is not None else None
+            if path.exists():
+                if path.is_symlink() or not path.is_file():raise ManagerError('Системный файл изменён другим приложением: '+filename,73)
+                actual=path.read_bytes()
+                if actual==before:continue
+                if hashlib.sha256(actual).hexdigest()!=record['after_sha256']:
+                    raise ManagerError('Системный файл изменён другим приложением: '+filename,73)
+            if before is None:path.unlink(missing_ok=True)
+            else:atomic_write(path,before,record['mode'])
 
     def check_system_paths(self,existing=None,legacy=None):
         records=(existing or {}).get('manager_files',{})
@@ -570,8 +606,8 @@ class Manager:
                     if previous: self.compose('stop',name+'-easy')
                     target=Path(candidate['components'][name]['data_directory'])
                     old=target.parent/('.before-restore-'+uuid.uuid4().hex)
-                    if target.exists(): os.replace(target,old)
-                    os.replace(staged.pop(name),target)
+                    if target.exists(): durable_replace(target,old)
+                    durable_replace(staged.pop(name),target)
                     self.write_config(working)
                     self.compose('up','-d','--no-deps',name+'-easy'); self.health(candidate['components'][name])
                 if not previous: self.register(working)
@@ -585,14 +621,26 @@ class Manager:
             for directory in staged.values(): shutil.rmtree(directory,ignore_errors=True)
 
     def rollback(self,journal):
+        # register мог успеть сохранить undo-запись после последней фазы в памяти.
+        if self.journal.exists():
+            saved=json.loads(self.journal.read_text())
+            if 'manager_files_before' in saved:journal['manager_files_before']=saved['manager_files_before']
+        self.verify_transaction_containers(journal)
         if journal.get('phase')=='committed': return self.finish_committed(journal)
         previous=journal.get('previous'); snapshot=journal.get('snapshot')
+        if previous and not snapshot and journal['operation']=='install' and previous.get('legacy_origin'):
+            legacy=previous['legacy_origin'];item=previous['components']['awg']
+            if not self.inspect_container(item['container']):
+                raise ManagerError('Исходный контейнер отсутствует до snapshot; автоматическое восстановление остановлено',75)
+            if legacy.get('running'):
+                self.run(['docker','start',item['container']]);self.health(item)
+            self.journal.unlink(missing_ok=True);return
         if previous and not snapshot and journal['operation'] in ('update','restore','uninstall'):
             self.write_config(previous)
             for name in journal['selected']:
                 item=previous['components'][name]
                 info=self.inspect_container(item['container'])
-                if info and info['State'].get('Running'):
+                if info and (info['State'].get('Running') or name in journal.get('running_before',[])):
                     self.compose('up','-d','--no-deps',name+'-easy');self.health(item)
                     self.rpc(item,'maintenance.end')
             self.journal.unlink(missing_ok=True);return
@@ -601,10 +649,11 @@ class Manager:
                 item=journal['candidate']['components'][name]
                 self.cleanup_created(item)
                 directory=Path(item['data_directory'])
-                if directory.exists():os.replace(directory,directory.parent/('.failed-'+name+'-'+uuid.uuid4().hex))
+                if directory.exists():durable_replace(directory,directory.parent/('.failed-'+name+'-'+uuid.uuid4().hex))
             if previous:self.write_config(previous)
             else:
                 self.path.unlink(missing_ok=True);self.compose_path.unlink(missing_ok=True)
+            self.restore_manager_files(journal)
             self.journal.unlink(missing_ok=True);return
         if not previous or not snapshot: raise ManagerError('Нет совместимой резервной копии; требуется vpnctl recover',75)
         manifest=verify_archive(snapshot)
@@ -615,14 +664,14 @@ class Manager:
                 if candidate:
                     self.cleanup_created(candidate)
                     directory=Path(candidate['data_directory'])
-                    if directory.exists():os.replace(directory,directory.parent/('.failed-'+name+'-'+uuid.uuid4().hex))
+                    if directory.exists():durable_replace(directory,directory.parent/('.failed-'+name+'-'+uuid.uuid4().hex))
                 continue
             target=Path(previous['components'][name]['data_directory'])
             stage=target.parent/('.rollback-'+uuid.uuid4().hex)
             extract_component(snapshot,name,stage)
             old=target.parent/('.failed-'+uuid.uuid4().hex)
-            if target.exists(): os.replace(target,old)
-            os.replace(stage,target)
+            if target.exists(): durable_replace(target,old)
+            durable_replace(stage,target)
         if journal['operation']=='install' and previous.get('legacy_origin'):
             item=previous['components']['awg']; self.run(['docker','rm','-f',item['container']],check=False)
             env=os.environ.copy(); env['AWG_IMAGE']=item['image']
@@ -634,8 +683,23 @@ class Manager:
             self.write_config(previous)
             for name in journal['selected']:
                 if name in previous['components']: self.compose('up','-d','--no-deps',name+'-easy'); self.health(previous['components'][name])
-            if previous.get('manager_files'): self.register(previous)
+            if previous.get('manager_files') and 'manager_files_before' not in journal:self.register(previous)
+        self.restore_manager_files(journal)
         self.journal.unlink(missing_ok=True)
+
+    def verify_transaction_containers(self,journal):
+        # Журнал не даёт права останавливать чужой контейнер с совпавшим именем.
+        for name in journal['selected']:
+            allowed=[config['components'][name] for config in [journal.get('previous'),journal.get('candidate')]
+                if config and name in config['components']]
+            for container in {item['container'] for item in allowed}:
+                info=self.inspect_container(container)
+                if not info:continue
+                source=next((m['Source'] for m in info.get('Mounts',[]) if m['Destination']=='/data'),None)
+                labels=info.get('Config',{}).get('Labels',{})
+                matches=any(info.get('Image')==item['image'] and source==item['data_directory'] for item in allowed if item['container']==container)
+                if not matches or info.get('HostConfig',{}).get('NetworkMode')!='host' or labels.get('com.docker.compose.service')!=name+'-easy':
+                    raise ManagerError('Восстановление остановлено: владение контейнером не подтверждено: '+container,73)
 
     def update(self,args):
         config=self.config(); selected=self.selected(config,args.component)

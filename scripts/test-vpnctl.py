@@ -12,7 +12,7 @@ from unittest import mock
 
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]/'lib'))
 from vpnctl_manager import Manager,build_parser
-from vpnctl_common import ManagerError,atomic_json,global_lock
+from vpnctl_common import ManagerError,atomic_json,atomic_write,global_lock
 from vpnctl_backup import create_archive,verify_archive,extract_component
 
 PROJECT=Path(__file__).resolve().parents[1]
@@ -72,6 +72,18 @@ class Checks(unittest.TestCase):
         with mock.patch('sys.stdin.isatty',return_value=True),mock.patch('builtins.input',return_value='51830'):
             plan=self.manager.plan_install(args)
         self.assertEqual(plan['components']['awg']['panel_port'],51830)
+    def test_port_scan_handles_only_confirmed_disappeared_containers(self):
+        def run(args,**kwargs):
+            if args[:3]==['docker','ps','-q']:return 'temporary-id\n'
+            if args[:2]==['docker','inspect']:return None
+            return ''
+        self.manager.run=run
+        self.assertFalse(self.manager.port_used('udp',39517))
+        def exists(args,**kwargs):
+            if args[:3]==['docker','ps','-aq']:return 'temporary-id\n'
+            return run(args,**kwargs)
+        self.manager.run=exists
+        with self.assertRaisesRegex(ManagerError,'порты'):self.manager.port_used('udp',39517)
     def test_backup_restore_one_component_preserves_other(self):
         cfg=config(self.root);self.manager.write_config(cfg)
         before_awg=(Path(cfg['components']['awg']['data_directory'])/'state.json').read_bytes()
@@ -99,14 +111,74 @@ class Checks(unittest.TestCase):
         cfg=config(self.root);self.manager.write_config(cfg)
         candidate=copy.deepcopy(cfg);candidate['components']['wg']['image']=BAD
         target=Path(cfg['components']['wg']['data_directory'])/'state.json'
+        snapshot=self.manager.backup('wg',str(self.root/'before-commit.tar.gz'))['file']
+        atomic_json(target,{'version':3,'server':{'backend':'wireguard'},'acknowledged':'Запись после фиксации'})
         before=target.read_bytes()
-        journal={'operation':'update','phase':'committed','previous':cfg,'candidate':candidate,'selected':['wg']}
+        journal={'operation':'update','phase':'committed','previous':cfg,'candidate':candidate,'selected':['wg'],'snapshot':snapshot}
         self.manager.save_journal(journal)
         self.manager.rollback(journal)
         self.assertEqual(self.manager.config()['components']['wg']['image'],BAD)
         self.assertEqual(target.read_bytes(),before)
         self.assertNotIn('maintenance_components',self.manager.config())
         self.assertFalse(self.manager.journal.exists())
+        self.assertIn(['compose','up','-d','--no-deps','wg-easy'],self.manager.calls)
+    def test_legacy_recovery_before_snapshot_restarts_original_without_state_changes(self):
+        cfg=config(self.root);item=cfg['components']['awg']
+        previous=copy.deepcopy(cfg);previous['components']={'awg':item};previous['legacy_origin']={'running':True}
+        before=(Path(item['data_directory'])/'state.json').read_bytes()
+        journal={'operation':'install','phase':'prepared','previous':previous,'candidate':cfg,'selected':['awg','wg']}
+        def inspect(name):
+            if name!=item['container']:return None
+            return {'Image':OLD,'Mounts':[{'Source':item['data_directory'],'Destination':'/data'}],
+                'HostConfig':{'NetworkMode':'host'},'Config':{'Labels':{'com.docker.compose.service':'awg-easy'}},'State':{'Running':False}}
+        self.manager.inspect_container=inspect;self.manager.save_journal(journal)
+        self.manager.rollback(journal)
+        self.assertEqual((Path(item['data_directory'])/'state.json').read_bytes(),before)
+        self.assertIn(['docker','start',item['container']],self.manager.calls)
+        self.assertFalse(self.manager.journal.exists())
+    def test_recovery_rejects_foreign_container_before_mutation(self):
+        cfg=config(self.root);self.manager.write_config(cfg)
+        before=self.manager.path.read_bytes()
+        journal={'operation':'update','phase':'committed','previous':cfg,'candidate':cfg,'selected':['wg']}
+        self.manager.inspect_container=lambda name:{'Image':BAD,'Mounts':[],'HostConfig':{'NetworkMode':'host'},'Config':{'Labels':{}}}
+        self.manager.save_journal(journal)
+        with self.assertRaisesRegex(ManagerError,'владение'):self.manager.rollback(journal)
+        self.assertEqual(self.manager.path.read_bytes(),before)
+        self.assertFalse(self.manager.calls);self.assertTrue(self.manager.journal.exists())
+    def test_partial_registration_rolls_back_only_owned_files(self):
+        cfg=config(self.root)
+        journal={'operation':'install','phase':'prepared','previous':None,'candidate':cfg,'selected':['awg','wg']}
+        self.manager.save_journal(journal)
+        files=list(self.manager.system_files())
+        def fail_second(path,*args,**kwargs):
+            if Path(path)==files[1]:raise OSError('Искусственный отказ записи системного файла')
+            return atomic_write(path,*args,**kwargs)
+        with mock.patch('vpnctl_manager.atomic_write',side_effect=fail_second):
+            with self.assertRaises(OSError):self.manager.register(cfg)
+        self.assertTrue(files[0].exists());self.assertFalse(files[1].exists())
+        self.manager.cleanup_created=lambda item:None
+        self.manager.rollback(journal)
+        self.assertTrue(all(not path.exists() for path in files))
+        self.assertFalse(self.manager.journal.exists())
+    def test_recovery_does_not_overwrite_modified_system_file(self):
+        cfg=config(self.root)
+        journal={'operation':'install','phase':'prepared','previous':None,'candidate':cfg,'selected':['wg']}
+        self.manager.save_journal(journal);self.manager.register(cfg)
+        file=next(iter(self.manager.system_files()));file.write_text('Изменено администратором\n')
+        saved=json.loads(self.manager.journal.read_text())
+        with self.assertRaisesRegex(ManagerError,'другим приложением'):self.manager.restore_manager_files(saved)
+        self.assertEqual(file.read_text(),'Изменено администратором\n')
+    def test_corrupt_snapshot_does_not_replace_state_or_stop_containers(self):
+        cfg=config(self.root);self.manager.write_config(cfg)
+        snapshot=self.manager.backup('wg',str(self.root/'damaged.tar.gz'))['file']
+        Path(snapshot).write_bytes(b'NOT AN ARCHIVE')
+        before=(Path(cfg['components']['wg']['data_directory'])/'state.json').read_bytes()
+        self.manager.calls.clear()
+        journal={'operation':'restore','phase':'snapshot_verified','previous':cfg,'candidate':cfg,'selected':['wg'],'snapshot':snapshot}
+        self.manager.save_journal(journal)
+        with self.assertRaises(ManagerError):self.manager.rollback(journal)
+        self.assertFalse(self.manager.calls);self.assertTrue(self.manager.journal.exists())
+        self.assertEqual((Path(cfg['components']['wg']['data_directory'])/'state.json').read_bytes(),before)
     def test_snapshot_failure_clears_maintenance_without_data_changes(self):
         cfg=config(self.root);self.manager.write_config(cfg)
         before=(Path(cfg['components']['wg']['data_directory'])/'state.json').read_bytes()
