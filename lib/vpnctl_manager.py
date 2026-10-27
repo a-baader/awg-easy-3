@@ -386,7 +386,7 @@ class Manager:
         for name,n,backend,table,container,panel in [('awg',8,'amneziawg','awg_easy_3','awg-easy-3',51821 if args.awg_panel_port is None else args.awg_panel_port),('wg',9,'wireguard','wg_easy_3','wg-easy-dual',51825 if args.wg_panel_port is None else args.wg_panel_port)]:
             if hasattr(self,'planning_targets') and name not in self.planning_targets and name not in (existing or {}).get('components',{}):continue
             if existing and name in existing['components']:
-                components[name]=copy.deepcopy(existing['components'][name]);continue
+                components[name]=copy.deepcopy(existing['components'][name]);components[name].setdefault('version',existing['version']);continue
             if name=='awg' and legacy:
                 components[name]={**legacy['item'],'image_ref':args.awg_image}
                 continue
@@ -420,6 +420,7 @@ class Manager:
                 item.update({'network6':prefix+'::/64','address6':prefix+'::1','ipv6_mode':'nat66'})
         config={**(existing or {}),'config_version':1,'version':(self.project/'VERSION').read_text().strip(),'project':str(self.project),
             'language':args.lang or (existing or {}).get('language','en'),'auto_check':(existing or {}).get('auto_check',True),'components':components}
+        for item in components.values():item.setdefault('version',config['version'])
         if legacy: config['legacy_origin']=legacy
         validate_instances(components)
         for item in components.values():
@@ -561,6 +562,7 @@ class Manager:
         if args.build:self.build_images(args,list(plan['components']))
         for name,item in plan['components'].items():
             item['image']=self.image(item['image_ref'],item['backend'])
+            self.validate_release_image(item,plan['version'])
             directory=Path(item['data_directory'])
             if (directory/'state.json').exists():
                 if name!='awg' or not legacy: raise ManagerError('Существующее состояние не принадлежит известной установке',73)
@@ -622,6 +624,7 @@ class Manager:
         if args.build:self.build_images(args,selected)
         for name in selected:
             item=candidate['components'][name];item['image']=self.image(item['image_ref'],item['backend'])
+            self.validate_release_image(item,candidate['version'])
             directory=Path(item['data_directory'])
             if directory.exists() and any(directory.iterdir()):raise ManagerError('Каталог нового компонента уже занят',73)
         journal={'operation':'extend','phase':'prepared','previous':existing,'candidate':candidate,'selected':selected}
@@ -765,13 +768,16 @@ class Manager:
         try: release=json.loads(Path(args.manifest).read_text())
         except (OSError,ValueError): raise ManagerError('Не удалось прочитать манифест релиза',65) from None
         if not isinstance(release.get('version'),str) or not re.fullmatch(r'\d+\.\d+\.\d+(?:-rc\.[1-9]\d*)?',release['version']) or not release.get('images'): raise ManagerError('Некорректный манифест релиза',65)
-        candidate=copy.deepcopy(config); candidate['version']=release['version']
+        candidate=copy.deepcopy(config)
+        for item in candidate['components'].values():item.setdefault('version',config['version'])
+        candidate['version']=release['version']
         for name in selected:
             reference=release['images'].get(name)
             if not isinstance(reference,str) or ':latest' in reference: raise ManagerError('Релиз должен указывать точный образ компонента',65)
             candidate['components'][name]['image']=self.image(reference,candidate['components'][name]['backend'])
             candidate['components'][name]['image_ref']=reference
             self.validate_release_image(candidate['components'][name],release['version'])
+            candidate['components'][name]['version']=release['version']
             self.validate_state_image(candidate['components'][name])
         if args.dry_run: return {'dry_run':True,'version':release['version'],'components':selected}
         self.owned(config)
@@ -798,6 +804,7 @@ class Manager:
         self.check_system_paths(previous)
         remaining=copy.deepcopy(previous)
         for name in selected:del remaining['components'][name]
+        if not remaining['components']:remaining={'components':{}}
         self.planning_existing=remaining
         self.reinstall_previous={'components':{name:item for name,item in previous['components'].items()
             if (self.inspect_container(item['container']) or {}).get('State',{}).get('Running')}}
@@ -814,7 +821,9 @@ class Manager:
             item=candidate['components'][name]
             if item['data_directory']!=previous['components'][name]['data_directory']:
                 raise ManagerError('При переустановке нельзя менять каталог данных; используйте backup и restore',64)
-            if not args.dry_run:item['image']=self.image(item['image_ref'],item['backend'])
+            if not args.dry_run:
+                item['image']=self.image(item['image_ref'],item['backend'])
+                self.validate_release_image(item,candidate['version'])
         if args.dry_run:return {'dry_run':True,'reinstall':selected,'backups_preserved':True}
         journal={'operation':'reinstall','phase':'prepared','previous':previous,'candidate':candidate,'selected':selected}
         journal['bootstrap_before']={name+suffix:base64.b64encode((self.root/'bootstrap'/(name+suffix)).read_bytes()).decode()

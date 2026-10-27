@@ -116,6 +116,31 @@ class Contract(unittest.TestCase):
         self.assertEqual(awg.read_bytes(),before_awg);self.assertNotEqual(wg.read_bytes(),before_wg)
         self.assertTrue(Path(result['snapshot']).exists());self.assertFalse(self.manager.journal.exists())
         self.assertFalse(any(call[0]=='sysctl' for call in self.manager.calls))
+    def test_full_reinstall_resets_project_settings_and_migration_metadata(self):
+        cfg=self.installed();cfg['language']='ru';cfg['auto_check']=False;cfg['legacy_origin']={'тест':'прежняя миграция'}
+        self.manager.write_config(cfg);self.manager.initialize=self.initialize
+        args=self.args(['reinstall','all','--host','192.0.2.10','--yes'])
+        with mock.patch('vpnctl_manager.environment_check'),mock.patch('sys.stderr',io.StringIO()):self.manager.reinstall(args)
+        current=self.manager.config()
+        self.assertEqual(current['language'],'en');self.assertTrue(current['auto_check']);self.assertNotIn('legacy_origin',current)
+        for item in current['components'].values():self.assertEqual(item['version'],(PROJECT/'VERSION').read_text().strip())
+    def test_partial_update_tracks_old_backend_for_next_boot_check(self):
+        cfg=self.installed();cfg['auto_check']=True;self.manager.write_config(cfg)
+        release=self.root/'release.json';atomic_json(release,{'version':'0.2.0','images':{'wg':fixture['OLD']}})
+        self.manager.update(self.args(['update','wg','--manifest',str(release),'--yes']))
+        current=self.manager.config()
+        self.assertEqual(current['components']['awg']['version'],'0.1.6')
+        self.assertEqual(current['components']['wg']['version'],'0.2.0')
+        with mock.patch('vpnctl_boot.fetch_release',return_value=None) as fetch:
+            vpnctl_boot.run(self.manager)
+        fetch.assert_called_once_with('0.1.6')
+    def test_boot_update_does_not_downgrade_newer_backend(self):
+        cfg=self.installed();cfg['auto_check']=True
+        cfg['components']['awg']['version']='0.2.0';cfg['components']['wg']['version']='0.3.0-rc.1'
+        self.manager.write_config(cfg)
+        with mock.patch('vpnctl_boot.fetch_release',return_value={'version':'0.2.1','images':{}}),mock.patch.object(self.manager,'update',return_value={'updated':['awg']}) as update:
+            self.assertEqual(vpnctl_boot.run(self.manager),{'updated':['awg']})
+        self.assertEqual(update.call_args.args[0].component,'awg')
     def test_failed_reinstall_restores_state_and_bootstrap(self):
         cfg=self.installed();target=Path(cfg['components']['wg']['data_directory'])/'state.json';before=target.read_bytes()
         profile=self.manager.root/'bootstrap/wg.conf';atomic_write(profile,'старый профиль')
