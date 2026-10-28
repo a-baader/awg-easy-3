@@ -1,10 +1,12 @@
+> Архив документации до стабильного выпуска 0.2.0. Актуальная инструкция: [README](../../../README.md).
+
 # wg-dual-easy
 
 > Предварительный выпуск **wg-dual-easy 0.2.0-rc.2** — **0.2.0-rc.2**.
-> [Описание выпуска](docs/releases/v0.2.0-rc.2.md). Два контейнера AWG/WG и единый host CLI.
-> Для установки используйте [INSTALL_DUAL.ru.md](docs/INSTALL_DUAL.ru.md),
-> для сборки — [BUILD.md](docs/BUILD.md), для команд — [CLI.ru.md](docs/CLI.ru.md).
-> Состояние приёмки и непроверенные сценарии — [TEST_REPORT.md](docs/TEST_REPORT.md).
+> [Описание выпуска](../../releases/v0.2.0-rc.2.md). Два контейнера AWG/WG и единый host CLI.
+> Для установки используйте [INSTALL_DUAL.ru.md](../../INSTALL_DUAL.ru.md),
+> для сборки — [BUILD.md](../../BUILD.md), для команд — [CLI.ru.md](../../CLI.ru.md).
+> Состояние приёмки и непроверенные сценарии — [TEST_REPORT.md](../../TEST_REPORT.md).
 > Описание ниже относится к исходному выпуску AWG-Easy 3 0.1.6.
 
 
@@ -14,7 +16,7 @@
 
 一个面向 **AmneziaWG 3.x** 的轻量 Docker 管理面板。本项目是 [JohnnyVBut/awg-easy](https://github.com/JohnnyVBut/awg-easy) 的独立、非商业分支，专为全新安装 AWG 3.x 而重新构建。
 
-> 当前版本：**0.1.6**，使用 AWG **v3.1.20260828** 引擎。现有配置继续有效。请参阅[发行说明](docs/releases/v0.1.6.md)。
+> 当前版本：**0.1.6**，使用 AWG **v3.1.20260828** 引擎。现有配置继续有效。请参阅[发行说明](../../releases/v0.1.6.md)。
 
 ## 功能概览
 
@@ -52,7 +54,7 @@ sudo awg-easy-3 export-client "Home admin"
 sudo awg-easy-3 update
 ```
 
-请使用 `sudo awg-easy-3 update` 更新，而非 `reinstall`：客户端、密钥、密码和端口保留，已停用客户端不会被启用。手动降级可能完全停用受部分限制的客户端，以防重新开放被禁止的地址族。详见[发行说明](docs/releases/v0.1.3.md)。
+请使用 `sudo awg-easy-3 update` 更新，而非 `reinstall`：客户端、密钥、密码和端口保留，已停用客户端不会被启用。手动降级可能完全停用受部分限制的客户端，以防重新开放被禁止的地址族。详见[发行说明](../../releases/v0.1.3.md)。
 
 无需重新导入配置。替换容器时，VPN 连接可能短暂中断。
 
@@ -96,7 +98,7 @@ sudo awg-easy-3 export-client "Home admin"
 
 这是 IP 地址范围过滤，不是域名过滤：nftables 对 VPN ↔ 互联网两个方向的 IPv4 和 IPv6 流量进行检查，包括已建立的连接。Home 客户端访问面板及其他 Home 客户端不受影响。排除在 VPN 之外的应用不受此过滤控制，也不会自动切换为直连。IP 所属国家不代表服务所属国家，也不保证准确性或避免 VPN 检测。访问外部 DNS 解析器的请求也可能被阻止。
 
-[DB-IP Country Lite](https://db-ip.com/db/download/ip-to-country-lite) 数据库自动下载和更新。更新失败时保留原数据库；没有可用数据库时，已启用的过滤器会拒绝互联网访问。面板显示数据库状态。参见[实现与测试报告](docs/GEOIP_DATABASE.md)。
+[DB-IP Country Lite](https://db-ip.com/db/download/ip-to-country-lite) 数据库自动下载和更新。更新失败时保留原数据库；没有可用数据库时，已启用的过滤器会拒绝互联网访问。面板显示数据库状态。参见[实现与测试报告](../../GEOIP_DATABASE.md)。
 
 **降级注意：**首次启用 GeoIP 后，数据格式变为 v2，即使随后关闭过滤器也不会恢复。0.1.5 无法读取此格式。启用前请妥善备份数据；启用后不支持仅通过切换回旧镜像来降级。
 
@@ -120,10 +122,10 @@ sudo awg-easy-3 export-client "Home admin"
 
 **Android 上的 AmneziaVPN 5.0.2.1：**Honor 50 对比测试中，IPv6 面板连接超时，但同一配置在独立 AmneziaWG 应用中正常。[Android 路由处理代码](https://github.com/amnezia-vpn/amnezia-client/blob/5.0.2.1/client/android/protocolApi/src/main/kotlin/ProtocolConfig.kt) 将 `::/0` 替换为 `2000::/3`，即使在“所有网站”模式下也不包含面板的内部 ULA 地址。请使用 IPv4 面板或已实测的 Android 替代客户端。此结论不泛指所有版本或平台。互联网、DNS、Home 客户端服务和服务发现仍需分别测试。
 
-此前截至 **0.1.3** 的实测。新增各客户端独立 IPv4/IPv6 权限及可折叠的“访问设置”。除之前的 Ubuntu/systemd 测试外，现已在真实 VPS 上验证 Alpine/OpenRC 的安装、迁移和重启。最后的界面修改是在 VPS 删除后于本地浏览器中验证的。请参阅[发行说明](docs/releases/v0.1.3.md)和[Alpine 实测报告（俄语）](docs/VPS_TEST_2026-08-31.ru.md)。
+此前截至 **0.1.3** 的实测。新增各客户端独立 IPv4/IPv6 权限及可折叠的“访问设置”。除之前的 Ubuntu/systemd 测试外，现已在真实 VPS 上验证 Alpine/OpenRC 的安装、迁移和重启。最后的界面修改是在 VPS 删除后于本地浏览器中验证的。请参阅[发行说明](../../releases/v0.1.3.md)和[Alpine 实测报告（俄语）](../../VPS_TEST_2026-08-31.ru.md)。
 
 AWG 3.1、Docker 部署、AmneziaVPN Android 导入、IPv4/IPv6、Home/Guest 隔离以及已删除配置的撤销均已在独立 VPS 上验证。服务器端 Home 发现转发和 SSDP 地址重写也已在两个真实 peer 之间验证；最终可见性取决于客户端应用是否通过 VPN 接口支持组播。
 
 ## 许可与署名
 
-继承并改编的材料按 **CC BY-NC-SA 4.0** 发布。请参阅 [LICENSE](LICENSE)、[NOTICE](NOTICE) 和 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)。本项目与 AmneziaVPN 没有关联，也未获其官方认可。
+继承并改编的材料按 **CC BY-NC-SA 4.0** 发布。请参阅 [LICENSE](../../../LICENSE)、[NOTICE](../../../NOTICE) 和 [docs/ARCHITECTURE.md](../../ARCHITECTURE.md)。本项目与 AmneziaVPN 没有关联，也未获其官方认可。

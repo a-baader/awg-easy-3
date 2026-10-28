@@ -13,11 +13,11 @@ developers, or the upstream AWG-Easy maintainers.
 Inherited adapted material is distributed under CC BY-NC-SA 4.0. See LICENSE.
 
 Bundled engines, tools and JavaScript dependencies retain their own licenses.
-See THIRD_PARTY_NOTICES.md for the dependency inventory and source links.
+See docs/THIRD_PARTY_NOTICES.md for the dependency inventory and source links.
 
 wg-dual-easy — производная работа в форке a-baader/wg-dual-easy на основе
 alexsemenovru/awg-easy-3, исходная версия 0.1.6, commit
 930dc6021024db9c8bbda7d92944aa9fef7baf3c. Добавлены стандартный userspace
 WireGuard, изоляция двух экземпляров, общий host manager и тесты восстановления.
 Атрибуция исходного проекта и условия CC BY-NC-SA 4.0 сохранены.
-Источники и лицензии VPN-движков перечислены в THIRD_PARTY_NOTICES.md.
+Источники и лицензии VPN-движков перечислены в docs/THIRD_PARTY_NOTICES.md.

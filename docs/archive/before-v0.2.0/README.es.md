@@ -1,10 +1,12 @@
+> Архив документации до стабильного выпуска 0.2.0. Актуальная инструкция: [README](../../../README.md).
+
 # wg-dual-easy
 
 > Предварительный выпуск **wg-dual-easy 0.2.0-rc.2** — **0.2.0-rc.2**.
-> [Описание выпуска](docs/releases/v0.2.0-rc.2.md). Два контейнера AWG/WG и единый host CLI.
-> Для установки используйте [INSTALL_DUAL.ru.md](docs/INSTALL_DUAL.ru.md),
-> для сборки — [BUILD.md](docs/BUILD.md), для команд — [CLI.ru.md](docs/CLI.ru.md).
-> Состояние приёмки и непроверенные сценарии — [TEST_REPORT.md](docs/TEST_REPORT.md).
+> [Описание выпуска](../../releases/v0.2.0-rc.2.md). Два контейнера AWG/WG и единый host CLI.
+> Для установки используйте [INSTALL_DUAL.ru.md](../../INSTALL_DUAL.ru.md),
+> для сборки — [BUILD.md](../../BUILD.md), для команд — [CLI.ru.md](../../CLI.ru.md).
+> Состояние приёмки и непроверенные сценарии — [TEST_REPORT.md](../../TEST_REPORT.md).
 > Описание ниже относится к исходному выпуску AWG-Easy 3 0.1.6.
 
 
@@ -14,7 +16,7 @@
 
 Un panel Docker sencillo para **AmneziaWG 3.x**. Es un fork independiente y no comercial de [JohnnyVBut/awg-easy](https://github.com/JohnnyVBut/awg-easy), reconstruido para instalaciones limpias de AWG 3.x.
 
-> Versión actual: **0.1.6**, con el motor AWG **v3.1.20260828**. Los perfiles existentes siguen siendo válidos. Consulte las [notas de la versión](docs/releases/v0.1.6.md).
+> Versión actual: **0.1.6**, con el motor AWG **v3.1.20260828**. Los perfiles existentes siguen siendo válidos. Consulte las [notas de la versión](../../releases/v0.1.6.md).
 
 ## Funciones principales
 
@@ -52,7 +54,7 @@ La instalación automática de PWA suele requerir **HTTPS**; la dirección HTTP 
 sudo awg-easy-3 update
 ```
 
-Actualice con `sudo awg-easy-3 update`, no con `reinstall`: se conservan clientes, claves, contraseña y puertos, y los clientes desactivados no se activan. Volver manualmente a una versión anterior puede desactivar por completo clientes parcialmente restringidos para no reabrir una familia prohibida. Consulte las [notas de la versión](docs/releases/v0.1.3.md).
+Actualice con `sudo awg-easy-3 update`, no con `reinstall`: se conservan clientes, claves, contraseña y puertos, y los clientes desactivados no se activan. Volver manualmente a una versión anterior puede desactivar por completo clientes parcialmente restringidos para no reabrir una familia prohibida. Consulte las [notas de la versión](../../releases/v0.1.3.md).
 
 No es necesario volver a importar los perfiles. La sustitución del contenedor puede interrumpir brevemente la conexión VPN.
 
@@ -96,7 +98,7 @@ Los ajustes de acceso de cada cliente permiten desactivar el filtro, bloquear pa
 
 Se filtran rangos IP, no dominios: nftables comprueba IPv4 e IPv6 en ambas direcciones VPN ↔ internet, incluidas las conexiones establecidas. El acceso Home al panel y a otros clientes Home no cambia. Las aplicaciones excluidas de la VPN quedan fuera del filtro; no hay cambio automático a conexión directa. El país de una IP no garantiza la nacionalidad del servicio, la precisión ni evitar la detección de VPN. Las consultas a un DNS externo también pueden bloquearse.
 
-[DB-IP Country Lite](https://db-ip.com/db/download/ip-to-country-lite) se descarga y actualiza automáticamente. Si falla la actualización, se conserva la base anterior; sin una base utilizable, un filtro activo deniega el acceso a internet. El panel muestra su estado. Véase el [informe técnico y de pruebas](docs/GEOIP_DATABASE.md).
+[DB-IP Country Lite](https://db-ip.com/db/download/ip-to-country-lite) se descarga y actualiza automáticamente. Si falla la actualización, se conserva la base anterior; sin una base utilizable, un filtro activo deniega el acceso a internet. El panel muestra su estado. Véase el [informe técnico y de pruebas](../../GEOIP_DATABASE.md).
 
 **Volver a una versión anterior:** activar GeoIP por primera vez cambia los datos al formato v2, aunque después se desactive. La versión 0.1.5 no puede leerlo. Conserve una copia protegida de los datos antes de activarlo; después no basta con restaurar la imagen anterior.
 
@@ -120,10 +122,10 @@ Estos perfiles requieren un cliente AWG 3.x; WireGuard convencional y clientes A
 
 **AmneziaVPN 5.0.2.1 en Android:** la prueba comparativa en Honor 50 mostró un tiempo de espera al abrir el panel IPv6, mientras que el mismo perfil funcionó con AmneziaWG. Su [procesamiento de rutas Android](https://github.com/amnezia-vpn/amnezia-client/blob/5.0.2.1/client/android/protocolApi/src/main/kotlin/ProtocolConfig.kt) sustituye `::/0` por `2000::/3`, excluyendo la dirección ULA interna incluso en modo Todos los sitios. Use el panel IPv4 o la alternativa Android verificada. No se generaliza a todas las versiones/plataformas. Internet, DNS, servicios Home y descubrimiento requieren pruebas independientes.
 
-Pruebas de campo anteriores, hasta **0.1.3** inclusive. Añade permisos IPv4/IPv6 por cliente y Ajustes de acceso plegables. Además de Ubuntu/systemd, ya se probaron la instalación, migración y reinicios en un VPS real con Alpine/OpenRC. Los últimos cambios de interfaz se probaron localmente tras eliminar el VPS. Consulte las [notas de la versión](docs/releases/v0.1.3.md) y el [informe de Alpine (en ruso)](docs/VPS_TEST_2026-08-31.ru.md).
+Pruebas de campo anteriores, hasta **0.1.3** inclusive. Añade permisos IPv4/IPv6 por cliente y Ajustes de acceso plegables. Además de Ubuntu/systemd, ya se probaron la instalación, migración y reinicios en un VPS real con Alpine/OpenRC. Los últimos cambios de interfaz se probaron localmente tras eliminar el VPS. Consulte las [notas de la versión](../../releases/v0.1.3.md) y el [informe de Alpine (en ruso)](../../VPS_TEST_2026-08-31.ru.md).
 
 AWG 3.1, Docker, la importación en AmneziaVPN para Android, IPv4/IPv6, el aislamiento Home/Guest y la revocación de perfiles ya se validaron en un VPS. La retransmisión Home del servidor y la reescritura de direcciones SSDP también se validaron entre dos peers reales; la visibilidad final depende del soporte multicast de la aplicación cliente sobre la interfaz VPN.
 
 ## Licencia y atribución
 
-El material adaptado heredado se distribuye bajo **CC BY-NC-SA 4.0**. Consulte [LICENSE](LICENSE), [NOTICE](NOTICE) y [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md). Este proyecto no está afiliado ni respaldado por AmneziaVPN.
+El material adaptado heredado se distribuye bajo **CC BY-NC-SA 4.0**. Consulte [LICENSE](../../../LICENSE), [NOTICE](../../../NOTICE) y [docs/ARCHITECTURE.md](../../ARCHITECTURE.md). Este proyecto no está afiliado ni respaldado por AmneziaVPN.

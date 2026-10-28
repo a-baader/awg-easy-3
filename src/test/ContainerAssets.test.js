@@ -22,7 +22,7 @@ test('pins amd64 base images and official AWG source revisions', () => {
   const version = fs.readFileSync(path.join(root, 'VERSION'), 'utf8').trim();
   assert.ok(compose.includes('ghcr.io/alexsemenovru/awg-easy-3:0.1.6'));
   const dual = fs.readFileSync(path.join(root, 'docker-compose.dual.yml'), 'utf8');
-  for (const backend of ['awg', 'wg']) assert.ok(dual.includes(`ghcr.io/a-baader/awg-easy-3-${backend}:${version}`));
+  for (const backend of ['awg', 'wg']) assert.ok(dual.includes(`ghcr.io/a-baader/wg-dual-easy-${backend}:${version}`));
   assert.match(dockerfile, /"node", "\/app\/healthcheck.js"/);
   const health = fs.readFileSync(path.join(root, 'src', 'healthcheck.js'), 'utf8');
   assert.match(health, /state.server.address4/);

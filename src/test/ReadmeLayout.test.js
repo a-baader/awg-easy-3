@@ -6,36 +6,35 @@ const path = require('node:path');
 const test = require('node:test');
 const root = path.join(__dirname, '..', '..');
 
-test('all five READMEs document alternative client versions and web-app limitations', () => {
-  for (const file of ['README.md', 'README.ru.md', 'README.es.md', 'README.fa.md', 'README.zh-CN.md']) {
+test('краткие README содержат два языка и ссылки на подробную документацию', () => {
+  for (const file of ['README.md', 'README.ru.md']) {
     const text = fs.readFileSync(path.join(root, file), 'utf8');
-    for (const required of ['3.1.20260814', '1.3.0-beta.2', '1.19.30', 'Honor_50.conf', '2000::/3', 'HTTPS', 'manifest']) {
-      assert(text.includes(required), `${file}: missing compatibility detail ${required}`);
+    for (const required of ['README.md', 'README.ru.md', 'WireGuard', 'HTTPS', 'docs/README.md', 'docs/TEST_REPORT.md']) {
+      assert(text.includes(required), `${file}: отсутствует ${required}`);
     }
+  }
+  for (const file of ['README.es.md', 'README.fa.md', 'README.zh-CN.md']) {
+    assert(!fs.existsSync(path.join(root, file)));
+    assert(fs.existsSync(path.join(root, 'docs/archive/before-v0.2.0', file)));
   }
 });
 
-test('all five READMEs put concise features and first login before technical detail', () => {
+test('README следуют структуре оригинала и описывают вход в обе панели', () => {
   for (const [file, headings] of [
-    ['README.md', ['What is AWG-Easy 3?', 'At a glance', 'Installation and first login', 'Update and management', 'Technical features']],
+    ['README.md', ['What is wg-dual-easy?', 'At a glance', 'Installation and first login', 'Update and management', 'Technical features']],
     ['README.ru.md', ['Что такое wg-dual-easy', 'Кратко о возможностях', 'Установка и первый вход', 'Обновление и управление', 'Технические возможности']],
-    ['README.es.md', ['Qué es AWG-Easy 3', 'Funciones principales', 'Instalación y primer acceso', 'Actualización y administración', 'Funciones técnicas']],
-    ['README.fa.md', ['AWG-Easy 3 چیست؟', 'امکانات در یک نگاه', 'نصب و نخستین ورود', 'به‌روزرسانی و مدیریت', 'امکانات فنی']],
-    ['README.zh-CN.md', ['AWG-Easy 3 是什么', '功能概览', '安装与首次登录', '更新与管理', '技术功能']],
   ]) {
     const text = fs.readFileSync(path.join(root, file), 'utf8').replace(/\r\n/g, '\n');
     const positions = headings.map(h => text.indexOf(`## ${h}\n`));
-    positions.forEach((p, i) => assert(p >= 0 && (i === 0 || p > positions[i - 1]), `${file}: section order`));
-    const brief = text.slice(positions[1], positions[2]);
-    assert.equal((brief.match(/^- /gm) || []).length, 3, `${file}: brief features`);
+    positions.forEach((p, i) => assert(p >= 0 && (i === 0 || p > positions[i - 1]), `${file}: порядок разделов`));
+    assert.equal((text.slice(positions[1], positions[2]).match(/^- /gm) || []).length, 3);
     const install = text.slice(positions[2], positions[3]);
-    const exportCommand = file === 'README.ru.md' ? 'vpnctl client export' : 'export-client';
-    for (const required of ['git clone', 'sudo ./install.sh', 'AmneziaVPN', 'vpn://', 'http://10.8.0.1:51821', exportCommand]) {
-      assert(install.includes(required), `${file}: first login missing ${required}`);
+    for (const required of ['git clone', 'sudo ./vpnctl install', 'AmneziaVPN', 'vpn://', 'http://10.8.0.1:51821', 'http://10.9.0.1:51825', 'vpnctl client export']) {
+      assert(install.includes(required), `${file}: отсутствует ${required}`);
     }
     for (const [, target] of text.matchAll(/\]\(([^)]+)\)/g)) {
       if (/^(https?:|#)/.test(target)) continue;
-      assert(fs.existsSync(path.join(root, target.split('#')[0])), `${file}: missing linked file ${target}`);
+      assert(fs.existsSync(path.join(root, target.split('#')[0])), `${file}: отсутствует файл ${target}`);
     }
   }
 });

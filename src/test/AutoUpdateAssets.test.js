@@ -22,7 +22,7 @@ test('release metadata stays aligned across application, state and image', () =>
   const legacy = fs.readFileSync(path.join(root, 'docker-compose.yml'), 'utf8');
   const store = fs.readFileSync(path.join(root, 'src', 'lib', 'StateStore.js'), 'utf8');
   assert.equal(version, packageJson.version);
-  for (const backend of ['awg', 'wg']) assert.ok(compose.includes(`ghcr.io/a-baader/awg-easy-3-${backend}:${version}`));
+  for (const backend of ['awg', 'wg']) assert.ok(compose.includes(`ghcr.io/a-baader/wg-dual-easy-${backend}:${version}`));
   assert.ok(legacy.includes('ghcr.io/alexsemenovru/awg-easy-3:0.1.6'));
   assert.match(store, new RegExp(`const STATE_VERSION = ${stateVersion};`));
   const workflow = fs.readFileSync(path.join(root, '.github', 'workflows', 'docker-publish.yml'), 'utf8');
@@ -38,9 +38,9 @@ test('release metadata stays aligned across application, state and image', () =>
   assert.ok(fs.existsSync(path.join(root, 'docs', 'releases', `v${version}.md`)));
 });
 
-test('all five READMEs identify the current version and link its release notes', () => {
+test('both READMEs identify the current version and link its release notes', () => {
   const version = fs.readFileSync(path.join(root, 'VERSION'), 'utf8').trim();
-  for (const name of ['README.md', 'README.ru.md', 'README.fa.md', 'README.es.md', 'README.zh-CN.md']) {
+  for (const name of ['README.md', 'README.ru.md']) {
     const readme = fs.readFileSync(path.join(root, name), 'utf8');
     assert.ok(readme.includes(`**${version}**`), `${name}: current version`);
     assert.ok(readme.includes(`docs/releases/v${version}.md`), `${name}: release notes`);

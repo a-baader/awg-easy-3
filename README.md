@@ -1,192 +1,77 @@
 # wg-dual-easy
 
-Переименование проекта и совместимость установок: [RENAME.ru.md](docs/RENAME.ru.md).
+[English](README.md) | [Русский](README.ru.md)
 
-> Предварительный выпуск **wg-dual-easy 0.2.0-rc.2** — **0.2.0-rc.2**.
-> [Описание выпуска](docs/releases/v0.2.0-rc.2.md). Два контейнера AWG/WG и единый host CLI.
-> Для установки используйте [INSTALL_DUAL.ru.md](docs/INSTALL_DUAL.ru.md),
-> для сборки — [BUILD.md](docs/BUILD.md), для команд — [CLI.ru.md](docs/CLI.ru.md).
-> Состояние приёмки и непроверенные сценарии — [TEST_REPORT.md](docs/TEST_REPORT.md).
-> Краткая установка нашего форка приведена ниже; английская справка оригинала сохранена отдельно.
+## What is wg-dual-easy?
 
+A small Docker web panel for AmneziaWG and standard WireGuard, with two independent VPN services and one `vpnctl` command. An independent, non-commercial fork of [AWG-Easy 3](https://github.com/alexsemenovru/awg-easy-3).
 
-## Установка и первый вход
+> Current release: **0.2.0**. Existing clients, keys and passwords are retained during updates. See the [release notes](docs/releases/v0.2.0.md).
 
-Для новой установки требуется Linux VPS с архитектурой `amd64`/`x86_64`, доступом от root,
-установленным Git и устройством `/dev/net/tun`. WSL, macOS и BSD не поддерживаются.
-При необходимости установщик подготовит Docker Engine, Docker Compose v2,
-iproute2, nftables и Python 3 через поддерживаемый менеджер пакетов.
+## At a glance
+
+- Create and export VPN profiles in a browser; access each panel through its own VPN.
+- Build a private network with Home clients, or give Guest clients Internet-only access.
+- Manage both services with one command, with backup, diagnostics and rollback.
+
+## Installation and first login
+
+Requirements: an amd64/x86_64 Linux VPS, root access, Git, `/dev/net/tun` and available inbound UDP ports. WSL, macOS and BSD are unsupported. The installer provisions missing Docker Engine, Docker Compose v2, iproute2, nftables and Python 3 using the supported package manager.
 
 ```bash
-git clone https://github.com/a-baader/wg-dual-easy.git
+git clone --branch v0.2.0 https://github.com/a-baader/wg-dual-easy.git
 cd wg-dual-easy
-sudo ./vpnctl install --host PUBLIC_IP_OR_DOMAIN --lang ru
+sudo ./vpnctl install --host PUBLIC_IP_OR_DOMAIN --lang en
 ```
 
-Замените `PUBLIC_IP_OR_DOMAIN` публичным IP-адресом или доменом вашего VPS.
-Прогресс установки виден в терминале. По умолчанию итог — читаемый текст и
-публичный файл `/root/wg-dual-easy-install-result.json` без паролей и ссылок
-профилей. Для JSON в stdout укажите `--json`. [Форматы вывода](docs/CLI_OUTPUT.ru.md).
-Установщик скачает готовые AWG/WG-образы текущего выпуска и проверит manifest;
-собирать образы на сервере не требуется. Совместимый вход
-`sudo ./install.sh --host PUBLIC_IP_OR_DOMAIN --lang ru` выполняет ту же установку.
+Replace `PUBLIC_IP_OR_DOMAIN` with your VPS address. Ready-made images are downloaded automatically; no server-side build is needed. Allow the selected UDP ports in the VPS/provider firewall: AWG uses a free random port, WG defaults to `51824`. The web panel ports do not need public access.
 
-Разрешите входящий UDP в firewall VPS и в облачном firewall провайдера:
-AWG использует случайный свободный порт `20000–60000`, кроме `51820`,
-WG — `51824` по умолчанию. Точные порты будут в выводе установщика.
-Публичный TCP-доступ к панелям открывать не нужно.
+The installer shows its progress, two separate panel passwords and the first Home profiles:
 
-Установщик создаст для каждого VPN отдельного клиента `admin` группы Home,
-ключи и пароль панели. Оба пароля показываются один раз. Для первого входа:
+- **AmneziaWG:** import the `vpn://` link into a compatible AmneziaVPN client, or use `/etc/vpn-easy-dual/bootstrap/awg.conf` with an AWG 3.x client. Connect and open `http://10.8.0.1:51821`.
+- **WireGuard:** import `/etc/vpn-easy-dual/bootstrap/wg.conf` into the standard WireGuard app. Connect and open `http://10.9.0.1:51825`.
 
-1. **AWG:** импортируйте показанную ссылку `vpn://` в AmneziaVPN либо файл
-   `/etc/vpn-easy-dual/bootstrap/awg.conf` в совместимый клиент AmneziaWG.
-   Подключитесь и откройте `http://10.8.0.1:51821`.
-2. **WireGuard:** скопируйте `/etc/vpn-easy-dual/bootstrap/wg.conf` на устройство
-   и импортируйте в стандартное приложение WireGuard. Подключитесь и откройте
-   `http://10.9.0.1:51825`.
+Use the password for the corresponding panel. Custom internal addresses printed by the installer take precedence. Home clients can access their own panel; Guest clients and the other VPN cannot.
 
-Используйте пароль именно той панели, к которой подключаетесь. При изменённых
-портах или адресах используйте ссылки из вывода установщика. Каждая панель
-доступна только через Home-подключение своего VPN; Guest и соседний VPN
-к ней доступа не получают.
-
-Если первая ссылка или профиль потерялись, выгрузите того же клиента заново:
+If you missed a profile, export the same client again:
 
 ```bash
 sudo vpnctl client export --component awg --name admin --format vpn-url
 sudo vpnctl client export --component wg --name admin --format conf --output /root/wg-admin.conf
 ```
 
-Существующий файл экспорта не перезаписывается: выберите новое имя, если он
-уже есть. Для AWG также доступен экспорт `--format conf`. Если потерян пароль,
-используйте `sudo vpnctl reset-password --component awg` или
-`sudo vpnctl reset-password --component wg`: новый пароль будет показан один раз.
-
-После установки: `sudo vpnctl` — меню, `sudo vpnctl status all` — состояние обоих VPN.
-Обновление исходников и готовых образов до последнего stable-релиза: `sudo vpnctl update`.
-При отсутствии нового stable-релиза изменений не будет; ручной manifest и сборка не нужны.
-Подробнее: [русская инструкция](README.ru.md#обновление-и-управление).
-
-## Справка оригинального AWG-Easy 3
-
-Следующий английский текст относится к исходному выпуску 0.1.6. Для установки
-wg-dual-easy используйте команды выше и [INSTALL_DUAL.ru.md](docs/INSTALL_DUAL.ru.md).
-
-[English](README.md) | [Русский](README.ru.md) | [فارسی](README.fa.md) | [Español](README.es.md) | [简体中文](README.zh-CN.md)
-
-## What is AWG-Easy 3?
-
-An intentionally small Docker web panel for **AmneziaWG 3.x**. This is an independent, non-commercial fork of [JohnnyVBut/awg-easy](https://github.com/JohnnyVBut/awg-easy), rebuilt around clean AWG 3.x installations.
-
-> Current release: **0.1.6**, with AWG engine **v3.1.20260828**. Existing profiles remain valid. See the [release notes](docs/releases/v0.1.6.md).
-
-## At a glance
-
-- Create and export VPN profiles in a browser; manage a panel accessible only inside the VPN.
-- Build a private network with Home clients, or give Guest clients Internet-only access.
-- Control IPv4/IPv6 per client, inspect live diagnostics, and install or update with a command.
-
-## Installation and first login
-
-Requirements: an amd64 Linux VPS, `/dev/net/tun`, root access, a supported package manager, and an available inbound UDP port. FreeBSD, OpenBSD, NetBSD, macOS and WSL are rejected before package installation because this release requires native Linux TUN, forwarding and nftables. When needed, the installer provisions Docker Engine, Docker Compose v2, iproute2 and nftables from the distribution repositories.
-
-```bash
-git clone https://github.com/alexsemenovru/awg-easy-3.git
-cd wg-dual-easy
-sudo ./install.sh --host PUBLIC_IP_OR_DOMAIN --lang en
-```
-
-For `vpn://` import, use **[AmneziaVPN 5.0.0.5 or later](https://github.com/amnezia-vpn/amnezia-client/releases)**, also available on Android via [Google Play](https://play.google.com/store/apps/details?id=org.amnezia.vpn). Alternatively, import the downloaded `.conf` in **AmneziaWG 3.1**. See the compatibility section below for the tested Android build, IPv6 panel access and other clients.
-
-The installer shows the panel password and the first Home `vpn://` link. Import it, connect, and open `http://10.8.0.1:51821` (or the internal address printed by the installer). Allow the selected UDP port in the provider firewall. If you missed the profile link, export the same client again:
-
-```bash
-sudo awg-easy-3 export-client "Home admin"
-```
+Passwords and bootstrap links are shown in the terminal. The public installation report is saved to `/root/wg-dual-easy-install-result.json` with mode `0600`, without passwords or profile contents. Use `--json` for JSON in stdout instead of a report file.
 
 ### Add the panel as an app
 
-Connect a Home VPN profile, open the panel, then use the browser menu: **Install app**, **Add to home screen**, or **Create shortcut** (wording varies). The panel includes a web-app manifest and icons for a standalone window where supported. Installation does not install or start the VPN: a Home connection and panel authentication are still required. IPv4 and IPv6 addresses are different origins and can create separate app entries/sessions.
-
-Automatic PWA installation prompts generally require **HTTPS**; the default private HTTP address does not meet that requirement. Some browsers can still add it as a site app or shortcut; availability and appearance depend on the browser/OS. No service worker, offline profile cache or new public port is added. See [browser installation requirements](https://developer.mozilla.org/en-US/docs/Web/Progressive_web_apps/Guides/Making_PWAs_installable).
+Connect your Home VPN, open the panel and use the browser's “Install app”, “Add to home screen” or “Create shortcut” menu. This does not install or start the VPN. Automatic installation prompts usually require HTTPS; the default private HTTP address may only support a shortcut. No offline profile cache is added.
 
 ## Update and management
 
 ```bash
-sudo awg-easy-3 update
+sudo vpnctl update
 ```
 
-Update with `sudo awg-easy-3 update`, not `reinstall`: existing clients, keys, password and ports are retained, and disabled clients stay disabled. Manual downgrade may fully disable partially restricted clients to avoid reopening a forbidden family. See the [release notes](docs/releases/v0.1.3.md).
+The command checks the latest stable release and updates its source code and ready-made images, with a snapshot and rollback on failure. Clients, keys, passwords and ports are retained. There is no change if the release is already installed or no stable release is available. RC releases and downgrades are not selected. Container replacement can briefly interrupt the VPN connection.
 
-No profile re-import is required. Container replacement can briefly interrupt the VPN connection.
+Run `sudo vpnctl` from any directory for the management menu, or use `sudo vpnctl help`. Commands print readable text and save a public JSON report in `/root`; `--json` explicitly selects JSON in stdout. Progress and prompts go to stderr.
 
-When run again in an interactive terminal, the installer detects its existing installation even when launched from a different fresh clone and offers to keep it, uninstall it, or reinstall it from scratch. The latter two actions require confirmation and permanently delete every AWG-Easy 3 client, key, password, and setting. Non-interactive automation can use `--uninstall` or `--reinstall`. Removal stops only this Compose service and deletes only its data and sysctl file; Docker itself, foreign containers, images, networks, firewall rules, and the host's current forwarding values are left untouched.
+On systemd/OpenRC, installation enables one stable-image check after boot with a five-minute delay; systemd adds up to two minutes of random delay. Manage it with `sudo vpnctl auto-update status|enable|disable|run`. Use `vpnctl update` to update the host source code too.
 
-After installation, run `sudo awg-easy-3` from any directory to open the same management menu. `sudo awg-easy-3 --uninstall` and `sudo awg-easy-3 --reinstall` are also available without locating the project directory.
+`vpnctl uninstall all` removes the services and working data while retaining internal backups. `vpnctl purge` also deletes internal backups and unused images whose ownership is confirmed. `vpnctl reinstall` creates a clean installation with new keys and passwords. Deletion and clean reinstallation require explicit confirmation, or `--yes` in automation.
 
-On systemd and OpenRC installations, the installer enables one stable-release check after each OS boot without asking a question. It waits five minutes, uses no cron job or additional permanent daemon, ignores prereleases and does nothing when the current release is already current or the panel was deliberately stopped. A candidate image is downloaded and validated before replacement; clients, keys, password, ports and settings are retained. A download failure leaves the running version untouched, while a failed container health check restores the previous release. Systems without a supported native boot hook retain manual updates.
-
-Common commands include `sudo awg-easy-3 start|stop|restart|status|settings|logs|diagnose|update`, plus `reset-password`, `export-client NAME`, `uninstall`, and `reinstall`. Manage the boot check with `sudo awg-easy-3 auto-update status|enable|disable|run`; in particular, `sudo awg-easy-3 auto-update disable` turns the default on-boot check off. Run `sudo awg-easy-3 help` for the complete built-in reference.
+Only application-owned resources are removed. Docker itself, foreign containers and the host's current forwarding values are preserved. Source directories and external reports/exports remain. The installed `vpnctl` is removed with the last service; use the source `./vpnctl` to install or restore afterwards.
 
 ## Technical features
 
-- AWG 3.1 configuration and AmneziaVPN `vpn://` export, plus optional `.conf` download.
-- Per-client Home/Guest isolation with compact full-tunnel profiles.
-- Independent IPv4/IPv6 permissions in Access settings, without re-importing profiles.
-- Recent-handshake state, interval-average receive/transmit rates, handshake and endpoint diagnostics without traffic history.
-- Requested AdGuard IPv4/IPv6 DNS defaults.
-- Automatic IPv6 ULA + scoped NAT66 when VPS IPv6 is usable.
-- Home-only mDNS and UPnP/SSDP discovery. UPnP IGD, NAT-PMP, PCP and every form of automatic port opening are intentionally unsupported. Visibility depends on client applications supporting multicast on the VPN interface.
-- VPN-only panel at `http://10.8.0.1:51821` and its internal IPv6 address when available, with one password.
-- Dedicated nftables table, narrowly tagged `awg0` rules in Docker's
-  `DOCKER-USER` chain when required, and no public Web UI port.
-- Pinned `linux/amd64` base images and official AWG source revisions.
-- No migration from 2.x, backup/restore, roles, or legacy WireGuard backend. Updates from 0.1.2 retain existing clients.
-- GeoIP-based selective routing is intentionally deferred pending a server-side design.
+- Separate AWG/WG containers, keys, clients, authentication and VPN-only panels.
+- Native `.conf` and QR export; AWG also supports `vpn://` export and QR.
+- Home/Guest isolation, per-client IPv4/IPv6 permissions and scoped IPv6 NAT when available.
+- Live transfer rates, handshake/endpoint diagnostics and optional client packet probes.
+- Consistent backup/restore, controlled migration, transaction recovery and rollback.
 
-### Client access settings
-
-Expand **Access settings** on a client card to allow IPv4 and IPv6 independently. Both off disables the client; the current mode remains visible when the section is closed. Home/Guest is independent. Changes apply in both directions inside the VPN, including existing connections; keys, profiles, addresses, DNS and routes remain unchanged. The panel protects the current administration path and the last permitted Home client. Internal IPv4/IPv6 panel links are listed under VPN traffic permissions.
-
-**IPv6-only may lose DNS resolution:** AmneziaVPN may apply only its IPv4 DNS fields even when the profile contains IPv6 DNS. Direct IPv6 can still work; enabling IPv4 restores access to IPv4 DNS. No DNS bypass, NAT64, WARP or direct fallback is added. The panel cannot control traffic excluded by the client's split-tunnelling rules; disable those filters for baseline tests. Discovery relay uses IPv4 and does not include clients whose IPv4 is blocked.
-
-### GeoIP filtering
-
-Each client's Access settings can disable filtering, block selected countries or allow only those countries. Enter country names in the panel language or two-letter codes, separated by commas, then save. No VPN profile reimport is needed.
-
-This is IP-range filtering, not domain filtering: nftables checks IPv4 and IPv6 in both VPN ↔ internet directions, including established connections. Home access to the panel and other Home clients is unchanged. Applications excluded from the VPN are outside its scope; there is no automatic direct fallback. An IP country does not guarantee a service's nationality, accuracy or protection from VPN detection. Requests to an external DNS resolver may also be blocked.
-
-[DB-IP Country Lite](https://db-ip.com/db/download/ip-to-country-lite) is downloaded and updated automatically. Failed updates retain the previous database; without a usable database, an active filter denies internet access. The panel displays database status. See the [implementation and test report](docs/GEOIP_DATABASE.md).
-
-**Downgrade:** first enabling GeoIP promotes saved state to v2, even if filters are later disabled. Version 0.1.5 cannot read it. Keep a protected data backup before enabling this feature; simply reverting the image is not supported afterward.
-
-### Connection diagnostics
-
-“Recent connection” means a handshake within the last 150 seconds, not a guarantee that the device is still connected. Rates are interval averages in bits/s: ↓ sent to the client, ↑ received from it. Server counters may include control traffic; sending does not prove delivery. The first sample shows “Measuring…”, and a failed or timed-out read shows “Data unavailable” instead of stale rates. Expand the diagnostic details to see the actual sampling interval.
-
-## Installation options and conflicts
-
-Without `--port` or `AWG_PORT`, a clean installation selects one free random UDP port in **20000–60000** (excluding the old default `51820`). The installer checks host sockets and Docker-published ports, then prints the selected endpoint and includes it in client profiles. Allow that UDP port in the VPS/provider firewall. Normal updates preserve the saved port; a clean reinstall selects again unless given an explicit port. A random port is not a guarantee against VPN detection or IP blocking.
-
-Optional `--port`, `--panel-port`, and `--lang en|ru|fa|es|zh-cn` arguments select the AWG UDP port, VPN-only panel TCP port, and interface language. If the default panel TCP port is occupied, an interactive run suggests the next free port and asks for confirmation; an explicitly supplied occupied port remains a strict error. English is the default; Persian uses an RTL layout. Russian, Spanish, and Simplified Chinese are also included.
-
-Supported package managers are APT, DNF, YUM, Zypper, Pacman and APK. NixOS is detected separately: the installer prints a ready-to-use declarative module and low-memory-safe, single-job `nixos-rebuild` instructions instead of editing `configuration.nix`. The installer never removes a conflicting container, interface, route or nftables table; conflicts it cannot resolve safely are reported before host networking is changed.
-
-## Compatibility and field testing
-
-AWG 3.x profiles require an AWG 3.x-capable client; ordinary WireGuard and older AWG clients are not compatible. AWG-Easy 3 is independent of the client projects.
-
-- **Android, tested alternative:** [AmneziaWG release v3.1.20260814](https://github.com/amnezia-vpn/amneziawg-android/releases/tag/v3.1.20260814). Its About screen reports app **3.1.20260813**, backend **3.1.20260814**. On 2026-09-09, the user confirmed import of our `.conf`, connection, and panel access over both IPv4 and IPv6 on Honor 50. Use file import, not `vpn://`; **2.0.1 is not compatible**. Downloads use a short ASCII tunnel name, e.g. `Honor_50.conf`; the displayed client name and profile contents do not change. Non-ASCII-only names use `AWG-client.conf`.
-- **Desktop, evaluation candidate:** [Throne 1.3.0-beta.2](https://github.com/throneproj/Throne/releases/tag/1.3.0-beta.2) implements AWG 3.x configuration fields, including `RandomTrailers` and `DisableCookies`. Try `.conf` import. This is a beta; **IPv6 panel access and Home networking have not been field-tested with AWG-Easy 3**, so we do not yet call it an IPv6-verified replacement.
-- **Advanced candidate:** [Mihomo 1.19.30](https://github.com/MetaCubeX/mihomo/releases/tag/v1.19.30) implements AWG 3.0/3.1. It needs a matching YAML configuration with `amnezia-wg-option.version: 3`; not every graphical client bundles this core. Import, IPv6 panel access and Home networking are not verified here.
-
-**AmneziaVPN 5.0.2.1 on Android:** the Honor 50 comparison found an IPv6 panel timeout, while the same profile worked in the separate AmneziaWG app. Its [Android route processing](https://github.com/amnezia-vpn/amnezia-client/blob/5.0.2.1/client/android/protocolApi/src/main/kotlin/ProtocolConfig.kt) replaces `::/0` with `2000::/3`, excluding the panel's internal ULA address even in All sites mode. Use the IPv4 panel address or the tested Android alternative. This is not a claim about every AmneziaVPN version/platform. Internet access, DNS, Home peer services and discovery require their own tests; opening the panel alone does not certify them.
-
-Earlier field testing, through **0.1.3**. Adds per-client IPv4/IPv6 permissions and collapsible Access settings. Alpine/OpenRC installation, migration and reboots have now been tested on a real VPS, alongside the earlier Ubuntu/systemd coverage. Final UI changes were browser-tested locally after the VPS was deleted. See the [release notes](docs/releases/v0.1.3.md) and [Alpine field report (Russian)](docs/VPS_TEST_2026-08-31.ru.md).
-
-The pinned AWG 3.1 engine, Docker deployment, AmneziaVPN Android import, IPv4/IPv6 connectivity, Home/Guest isolation and profile revocation have been validated on a dedicated VPS. Server-side Home discovery fan-out and SSDP address rewriting have also been validated between two real peers; end-to-end visibility depends on whether the client application sends and receives multicast on the VPN interface.
+Detailed documentation: [installation](docs/INSTALL_DUAL.ru.md), [CLI](docs/CLI.ru.md), [output and progress](docs/CLI_OUTPUT.ru.md), [network security](docs/NETWORK_SECURITY.ru.md), [updates](docs/UPDATE_ROLLBACK.ru.md), [build](docs/BUILD.md), [test report](docs/TEST_REPORT.md). See the [documentation index](docs/README.md) for all materials.
 
 ## License and attribution
 
-See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for design notes and [NOTICE](NOTICE) for attribution.
+Non-commercial use under [CC BY-NC-SA 4.0](LICENSE). See [NOTICE](NOTICE) and [third-party notices](docs/THIRD_PARTY_NOTICES.md). Independent of AmneziaVPN, WireGuard and their maintainers.
