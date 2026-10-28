@@ -68,9 +68,9 @@ def current_source_commit(manager,config):
     if config.get('source_commit'):return config['source_commit']
     # Первая установка из чистого стабильного Git-тега уже использует точные
     # исходники релиза и не должна повторно перезапускать те же контейнеры.
-    revision=manager.run(['git','-C',str(manager.project),'rev-parse','HEAD'],check=False)
+    revision=manager.run(['git','-c','safe.directory='+str(manager.project),'-C',str(manager.project),'rev-parse','HEAD'],check=False)
     if not revision or not re.fullmatch(r'[a-f0-9]{40}',revision.strip()):return None
-    dirty=manager.run(['git','-C',str(manager.project),'status','--porcelain','--untracked-files=all'],check=False)
+    dirty=manager.run(['git','-c','safe.directory='+str(manager.project),'-C',str(manager.project),'status','--porcelain','--untracked-files=all'],check=False)
     return revision.strip() if dirty is not None and not dirty.strip() else None
 
 
