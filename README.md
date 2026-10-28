@@ -5,8 +5,66 @@
 > Для установки используйте [INSTALL_DUAL.ru.md](docs/INSTALL_DUAL.ru.md),
 > для сборки — [BUILD.md](docs/BUILD.md), для команд — [CLI.ru.md](docs/CLI.ru.md).
 > Состояние приёмки и непроверенные сценарии — [TEST_REPORT.md](docs/TEST_REPORT.md).
-> Описание ниже относится к исходному выпуску AWG-Easy 3 0.1.6.
+> Краткая установка нашего форка приведена ниже; английская справка оригинала сохранена отдельно.
 
+
+## Установка и первый вход
+
+Для новой установки требуется Linux VPS с архитектурой `amd64`/`x86_64`, доступом от root,
+установленным Git и устройством `/dev/net/tun`. WSL, macOS и BSD не поддерживаются.
+При необходимости установщик подготовит Docker Engine, Docker Compose v2,
+iproute2, nftables и Python 3 через поддерживаемый менеджер пакетов.
+
+```bash
+git clone https://github.com/a-baader/awg-easy-3.git
+cd awg-easy-3
+sudo ./vpnctl install --host PUBLIC_IP_OR_DOMAIN --lang ru
+```
+
+Замените `PUBLIC_IP_OR_DOMAIN` публичным IP-адресом или доменом вашего VPS.
+Установщик скачает готовые AWG/WG-образы текущего выпуска и проверит manifest;
+собирать образы на сервере не требуется. Совместимый вход
+`sudo ./install.sh --host PUBLIC_IP_OR_DOMAIN --lang ru` выполняет ту же установку.
+
+Разрешите входящий UDP в firewall VPS и в облачном firewall провайдера:
+AWG использует случайный свободный порт `20000–60000`, кроме `51820`,
+WG — `51824` по умолчанию. Точные порты будут в выводе установщика.
+Публичный TCP-доступ к панелям открывать не нужно.
+
+Установщик создаст для каждого VPN отдельного клиента `admin` группы Home,
+ключи и пароль панели. Оба пароля показываются один раз. Для первого входа:
+
+1. **AWG:** импортируйте показанную ссылку `vpn://` в AmneziaVPN либо файл
+   `/etc/vpn-easy-dual/bootstrap/awg.conf` в совместимый клиент AmneziaWG.
+   Подключитесь и откройте `http://10.8.0.1:51821`.
+2. **WireGuard:** скопируйте `/etc/vpn-easy-dual/bootstrap/wg.conf` на устройство
+   и импортируйте в стандартное приложение WireGuard. Подключитесь и откройте
+   `http://10.9.0.1:51825`.
+
+Используйте пароль именно той панели, к которой подключаетесь. При изменённых
+портах или адресах используйте ссылки из вывода установщика. Каждая панель
+доступна только через Home-подключение своего VPN; Guest и соседний VPN
+к ней доступа не получают.
+
+Если первая ссылка или профиль потерялись, выгрузите того же клиента заново:
+
+```bash
+sudo vpnctl client export --component awg --name admin --format vpn-url
+sudo vpnctl client export --component wg --name admin --format conf --output /root/wg-admin.conf
+```
+
+Существующий файл экспорта не перезаписывается: выберите новое имя, если он
+уже есть. Для AWG также доступен экспорт `--format conf`. Если потерян пароль,
+используйте `sudo vpnctl reset-password --component awg` или
+`sudo vpnctl reset-password --component wg`: новый пароль будет показан один раз.
+
+После установки: `sudo vpnctl` — меню, `sudo vpnctl status all` — состояние обоих VPN.
+Подробнее: [русская инструкция](README.ru.md#обновление-и-управление).
+
+## Справка оригинального AWG-Easy 3
+
+Следующий английский текст относится к исходному выпуску 0.1.6. Для установки
+VPN Easy Dual используйте команды выше и [INSTALL_DUAL.ru.md](docs/INSTALL_DUAL.ru.md).
 
 [English](README.md) | [Русский](README.ru.md) | [فارسی](README.fa.md) | [Español](README.es.md) | [简体中文](README.zh-CN.md)
 
