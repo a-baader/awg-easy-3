@@ -1,10 +1,10 @@
-# Исходный аудит VPN Easy Dual
+# Исходный аудит wg-dual-easy
 
 Дата: 2026-10-27. Этап 0; реализация приложения ещё не начата.
 
 ## Проверенная база
 
-- Форк: `https://github.com/a-baader/awg-easy-3`.
+- Форк: `https://github.com/a-baader/wg-dual-easy`.
 - Оригинал: `https://github.com/alexsemenovru/awg-easy-3`.
 - Исходная ветка `master`, тег `v0.1.6`.
 - SHA: `930dc6021024db9c8bbda7d92944aa9fef7baf3c`.

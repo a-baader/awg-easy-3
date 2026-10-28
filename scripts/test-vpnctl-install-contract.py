@@ -64,7 +64,7 @@ class Contract(unittest.TestCase):
             self.assertEqual(item['endpoint'],'172.16.0.2');self.assertEqual(item['wan_interface'],'eth1')
     def test_default_release_resolution_is_verified_and_cached_for_both_images(self):
         version=(PROJECT/'VERSION').read_text().strip()
-        release={'version':version,'images':{name:'ghcr.io/a-baader/awg-easy-3-'+name+'@sha256:'+'b'*64 for name in ['awg','wg']}}
+        release={'version':version,'images':{name:'ghcr.io/a-baader/wg-dual-easy-'+name+'@sha256:'+'b'*64 for name in ['awg','wg']}}
         with mock.patch('vpnctl_boot.fetch_manifest',return_value=release) as fetch:
             for name in ['awg','wg']:
                 self.assertEqual(Manager.resolve_image_reference(self.manager,'release://'+version+'/'+name),release['images'][name])
@@ -101,6 +101,18 @@ class Contract(unittest.TestCase):
             result=subprocess.run([str(launcher),*(['install'] if launcher.name!='install.sh' else []),'--help'],cwd=self.root,capture_output=True,text=True)
             self.assertEqual(result.returncode,0,result.stderr);self.assertIn('--panel-port',result.stdout)
         self.assertEqual(self.args(['install','--data-root','relative']).data_root,str(PROJECT/'relative'))
+    def test_help_is_printed_once_without_installation(self):
+        for launcher in [PROJECT/'vpnctl',PROJECT/'install.sh']:
+            for arguments in [['-help'],['--help'],['-h'],['install','-help'],['install','--help'],['install','-h']]:
+                if launcher.name=='install.sh' and arguments[0]=='install':continue
+                with self.subTest(launcher=launcher.name,arguments=arguments):
+                    result=subprocess.run([str(launcher),*arguments],cwd=self.root,capture_output=True,text=True)
+                    self.assertEqual(result.returncode,0,result.stderr)
+                    self.assertEqual(result.stdout.count('Использование:'),1,result.stdout)
+                    self.assertEqual(result.stderr,'')
+        result=subprocess.run(['sh',str(PROJECT/'lib/vpnctl-install-validate.sh'),'-help'],capture_output=True,text=True)
+        self.assertEqual(result.returncode,0,result.stderr)
+        self.assertEqual(result.stdout.count('Использование:'),1)
     def test_destructive_confirmation_is_explicit(self):
         args=SimpleNamespace(yes=False,dry_run=False)
         with mock.patch('sys.stdin.isatty',return_value=False):
@@ -237,8 +249,19 @@ class Contract(unittest.TestCase):
         cfg=self.installed();cfg['auto_check']=True;self.manager.write_config(cfg)
         result=vpnctl_boot.status(self.manager)
         self.assertTrue(result['requested']);self.assertFalse(result['enabled'])
+    def test_renamed_repository_accepts_old_images_only_for_published_rc(self):
+        self.assertEqual(vpnctl_boot.REPOSITORY,'a-baader/wg-dual-easy')
+        for version in ['0.2.0-rc.1','0.2.0-rc.2','0.2.0','0.3.0']:
+            release={'version':version,'images':{name:'ghcr.io/a-baader/awg-easy-3-'+name+'@sha256:'+'a'*64 for name in ['awg','wg']},'source_commit':'b'*40,'platform':'linux/amd64'}
+            raw=json.dumps(release).encode()
+            def fetch(url):
+                if url.endswith('SHA256SUMS'):return (hashlib.sha256(raw).hexdigest()+'  release-manifest.json\n').encode()
+                return raw
+            if '-rc.' in version:self.assertEqual(vpnctl_boot.fetch_manifest(version,fetch),release)
+            else:
+                with self.assertRaisesRegex(ManagerError,'неподходящие'):vpnctl_boot.fetch_manifest(version,fetch)
     def test_stable_manifest_verification_rc_skip_and_same_version_rc_upgrade(self):
-        release={'version':'0.2.0','images':{name:'ghcr.io/a-baader/awg-easy-3-'+name+'@sha256:'+'a'*64 for name in ['awg','wg']},'source_commit':'b'*40,'platform':'linux/amd64'}
+        release={'version':'0.2.0','images':{name:'ghcr.io/a-baader/wg-dual-easy-'+name+'@sha256:'+'a'*64 for name in ['awg','wg']},'source_commit':'b'*40,'platform':'linux/amd64'}
         raw=json.dumps(release).encode();api=json.dumps({'tag_name':'v0.2.0','draft':False,'prerelease':False}).encode()
         def fetch(url):
             if url.endswith('/latest'):return api

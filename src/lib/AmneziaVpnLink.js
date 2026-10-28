@@ -80,7 +80,7 @@ const profileToAmneziaFields = (input) => {
 };
 
 const buildAmneziaPayload = ({
-  description = 'AWG-Easy 3',
+  description = 'wg-dual-easy',
   hostName,
   port,
   dns = ['1.1.1.1', '8.8.8.8'],

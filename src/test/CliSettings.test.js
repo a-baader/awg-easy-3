@@ -34,8 +34,8 @@ test('CLI settings uses persisted values instead of container initialization env
 });
 
 test('CLI settings explains unavailable state and exits unsuccessfully', async () => {
-  const result = await run(async () => { throw new Error('AWG-Easy 3 is not initialized'); });
-  assert.deepEqual(result, { output: '', error: '[amneziawg] AWG-Easy 3 is not initialized', code: 1 });
+  const result = await run(async () => { throw new Error('wg-dual-easy is not initialized'); });
+  assert.deepEqual(result, { output: '', error: '[amneziawg] wg-dual-easy is not initialized', code: 1 });
 });
 
 test('manager settings reads a one-shot container without starting the VPN', () => {

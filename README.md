@@ -1,6 +1,8 @@
-# VPN Easy Dual
+# wg-dual-easy
 
-> Предварительный выпуск **VPN Easy Dual 0.2.0-rc.2** — **0.2.0-rc.2**.
+Переименование проекта и совместимость установок: [RENAME.ru.md](docs/RENAME.ru.md).
+
+> Предварительный выпуск **wg-dual-easy 0.2.0-rc.2** — **0.2.0-rc.2**.
 > [Описание выпуска](docs/releases/v0.2.0-rc.2.md). Два контейнера AWG/WG и единый host CLI.
 > Для установки используйте [INSTALL_DUAL.ru.md](docs/INSTALL_DUAL.ru.md),
 > для сборки — [BUILD.md](docs/BUILD.md), для команд — [CLI.ru.md](docs/CLI.ru.md).
@@ -16,8 +18,8 @@
 iproute2, nftables и Python 3 через поддерживаемый менеджер пакетов.
 
 ```bash
-git clone https://github.com/a-baader/awg-easy-3.git
-cd awg-easy-3
+git clone https://github.com/a-baader/wg-dual-easy.git
+cd wg-dual-easy
 sudo ./vpnctl install --host PUBLIC_IP_OR_DOMAIN --lang ru
 ```
 
@@ -64,7 +66,7 @@ sudo vpnctl client export --component wg --name admin --format conf --output /ro
 ## Справка оригинального AWG-Easy 3
 
 Следующий английский текст относится к исходному выпуску 0.1.6. Для установки
-VPN Easy Dual используйте команды выше и [INSTALL_DUAL.ru.md](docs/INSTALL_DUAL.ru.md).
+wg-dual-easy используйте команды выше и [INSTALL_DUAL.ru.md](docs/INSTALL_DUAL.ru.md).
 
 [English](README.md) | [Русский](README.ru.md) | [فارسی](README.fa.md) | [Español](README.es.md) | [简体中文](README.zh-CN.md)
 
@@ -86,7 +88,7 @@ Requirements: an amd64 Linux VPS, `/dev/net/tun`, root access, a supported packa
 
 ```bash
 git clone https://github.com/alexsemenovru/awg-easy-3.git
-cd awg-easy-3
+cd wg-dual-easy
 sudo ./install.sh --host PUBLIC_IP_OR_DOMAIN --lang en
 ```
 

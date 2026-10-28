@@ -1,16 +1,18 @@
-# VPN Easy Dual
+# wg-dual-easy
 
-> Предварительный выпуск **VPN Easy Dual 0.2.0-rc.2** — **0.2.0-rc.2**.
+Переименование проекта и совместимость установок: [RENAME.ru.md](docs/RENAME.ru.md).
+
+> Предварительный выпуск **wg-dual-easy 0.2.0-rc.2** — **0.2.0-rc.2**.
 > [Описание выпуска](docs/releases/v0.2.0-rc.2.md). Два контейнера AWG/WG и единый host CLI.
 > Для установки используйте [INSTALL_DUAL.ru.md](docs/INSTALL_DUAL.ru.md),
 > для сборки — [BUILD.md](docs/BUILD.md), для команд — [CLI.ru.md](docs/CLI.ru.md).
 > Состояние приёмки и непроверенные сценарии — [TEST_REPORT.md](docs/TEST_REPORT.md).
-> Ниже описаны установка и управление VPN Easy Dual. Справка оригинального AWG-Easy 3 отмечена отдельно.
+> Ниже описаны установка и управление wg-dual-easy. Справка оригинального AWG-Easy 3 отмечена отдельно.
 
 
 [English](README.md) | [Русский](README.ru.md) | [فارسی](README.fa.md) | [Español](README.es.md) | [简体中文](README.zh-CN.md)
 
-## Что такое VPN Easy Dual
+## Что такое wg-dual-easy
 
 Форк [AWG-Easy 3](https://github.com/alexsemenovru/awg-easy-3) с двумя
 самостоятельными сервисами: AmneziaWG и стандартным WireGuard. У каждого своя
@@ -30,8 +32,8 @@
 iproute2, nftables и Python 3 через поддерживаемый менеджер пакетов.
 
 ```bash
-git clone https://github.com/a-baader/awg-easy-3.git
-cd awg-easy-3
+git clone https://github.com/a-baader/wg-dual-easy.git
+cd wg-dual-easy
 sudo ./vpnctl install --host PUBLIC_IP_OR_DOMAIN --lang ru
 ```
 
@@ -124,7 +126,7 @@ sudo vpnctl update all --manifest /root/release-manifest.json --yes
 
 > Следующие справочные разделы сохранены из оригинального AWG-Easy 3 0.1.6.
 > Ограничения оригинала, например отсутствие WireGuard и backup/restore,
-> не относятся к VPN Easy Dual. Актуальное устройство Dual описано в
+> не относятся к wg-dual-easy. Актуальное устройство Dual описано в
 > [DUAL_ARCHITECTURE.md](docs/DUAL_ARCHITECTURE.md).
 
 - AWG 3.1 `HeaderProtectionKey`, `AdvancedSecurity`, новые timing/padding-поля, `RandomTrailers` и `DisableCookies`.

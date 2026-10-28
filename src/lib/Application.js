@@ -100,7 +100,7 @@ class Application {
 
   async settings() {
     const state = await this.store.load();
-    if (!state) throw new Error('AWG-Easy 3 is not initialized; run the init command first');
+    if (!state) throw new Error('wg-dual-easy is not initialized; run the init command first');
     // An explicit allowlist: never return keys, password hashes or client data.
     return Object.freeze({
       AWG_HOST: state.server.endpointHost,
@@ -122,7 +122,7 @@ class Application {
 
   async start() {
     const state = await this.store.load();
-    if (!state) throw new Error('AWG-Easy 3 is not initialized; run the init command first');
+    if (!state) throw new Error('wg-dual-easy is not initialized; run the init command first');
     this.backend.assertState(state);
     // A reused Application must not call a previous runtime's installer before
     // its new interface exists. Startup may persist data, but cannot apply rules yet.
@@ -211,7 +211,7 @@ class Application {
     const query = typeof selector === 'string' ? selector.trim() : '';
     if (!query) throw new Error('Client name or ID is required');
     const state = await this.store.load();
-    if (!state) throw new Error('AWG-Easy 3 is not initialized');
+    if (!state) throw new Error('wg-dual-easy is not initialized');
     const folded = query.toLocaleLowerCase();
     const client = state.clients.find((item) => item.id === query
       || item.name.trim().toLocaleLowerCase() === folded);

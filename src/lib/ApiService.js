@@ -89,7 +89,7 @@ class ApiService {
   async listClients(token) {
     await this.authorize(token);
     const state = await this.store.load();
-    if (!state) throw new ApiError(503, 'AWG-Easy 3 is not initialized');
+    if (!state) throw new ApiError(503, 'wg-dual-easy is not initialized');
     return Object.freeze(state.clients.map(publicClient));
   }
 
@@ -102,7 +102,7 @@ class ApiService {
   async networkInfo(token) {
     await this.authorize(token);
     const state = await this.store.load();
-    if (!state) throw new ApiError(503, 'AWG-Easy 3 is not initialized');
+    if (!state) throw new ApiError(503, 'wg-dual-easy is not initialized');
     const { address4, address6, ipv6Subnet, panelPort } = state.server;
     return Object.freeze({
       panelIpv4Url: `http://${address4}:${panelPort}/`,

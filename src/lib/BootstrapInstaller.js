@@ -80,7 +80,7 @@ class BootstrapInstaller {
     ipv6,
   }) {
     if (await this.store.load() !== null) {
-      throw new Error('AWG-Easy 3 is already initialized; refusing to overwrite state');
+      throw new Error('wg-dual-easy is already initialized; refusing to overwrite state');
     }
 
     const network = await this.networkDetector.detect();

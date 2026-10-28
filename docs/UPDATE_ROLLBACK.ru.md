@@ -13,7 +13,7 @@ sudo vpnctl auto-update enable
 sudo vpnctl auto-update run
 ```
 
-Проверка обращается к stable-релизу `a-baader/awg-easy-3` на GitHub. RC/draft
+Проверка обращается к stable-релизу `a-baader/wg-dual-easy` на GitHub. RC/draft
 пропускаются; stable с тем же номером заменяет RC. Проверяются SHA256SUMS,
 версия, платформа, source_commit и ссылки на оба образа собственного GHCR
 с digest. Сетевой сбой или неподходящий manifest сохраняют установленную версию.

@@ -30,7 +30,7 @@
     if (!api.capabilities) return;
     capabilities = await api.capabilities();
     const wireguard = capabilities.backend === 'wireguard';
-    const name = wireguard ? 'WG Easy Dual' : 'AWG-Easy 3';
+    const name = 'wg-dual-easy';
     document.title = name;
     const heading = $('#product-name');
     if (heading) heading.textContent = name;

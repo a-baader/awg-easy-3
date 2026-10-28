@@ -1,4 +1,4 @@
-"""Единый host manager VPN Easy Dual. Секреты не передаются через argv."""
+"""Единый host manager wg-dual-easy. Секреты не передаются через argv."""
 import argparse
 import base64
 from contextlib import contextmanager
@@ -27,7 +27,7 @@ class Parser(argparse.ArgumentParser):
     def __init__(self,*args,**kwargs):
         kwargs['add_help']=False
         super().__init__(*args,**kwargs)
-        self.add_argument('-h','--help',action='help',help='Показать справку')
+        self.add_argument('-h','--help','-help',action='help',help='Показать справку')
         self._positionals.title='Команды';self._optionals.title='Параметры'
     def format_usage(self): return super().format_usage().replace('usage:','Использование:',1)
     def format_help(self): return super().format_help().replace('usage:','Использование:',1)
@@ -46,7 +46,7 @@ class Manager:
 
     def config(self, required=True):
         if not self.path.is_file():
-            if required: raise ManagerError('VPN Easy Dual ещё не установлен',65)
+            if required: raise ManagerError('wg-dual-easy ещё не установлен',65)
             return None
         try: value=json.loads(self.path.read_text())
         except (OSError,ValueError): raise ManagerError('Конфигурация vpnctl повреждена',65) from None
@@ -940,10 +940,13 @@ def valid_port(value):
     return int(value)
 
 def build_parser():
-    parser=Parser(prog='vpnctl',description='Единое управление AWG и стандартным WireGuard')
+    parser=Parser(prog='vpnctl',description='Единое управление AWG и стандартным WireGuard',
+        epilog='Подробнее о параметрах: vpnctl КОМАНДА --help. Компонент all означает оба сервиса, awg — AmneziaWG, wg — WireGuard.')
     parser.add_argument('--config',default='/etc/vpn-easy-dual/config.json',help='Путь к конфигурации manager')
     sub=parser.add_subparsers(dest='command')
-    sub.add_parser('help',help='Показать справку')
+    def command(name,description,**kwargs):
+        return sub.add_parser(name,help=description,description=description,**kwargs)
+    command('help','Показать общую справку со списком команд')
     install_options=argparse.ArgumentParser(add_help=False)
     install=install_options
     install.add_argument('--host',default=os.environ.get('AWG_HOST'),help='Публичный IP или домен сервера')
@@ -963,10 +966,22 @@ def build_parser():
     actions.add_argument('--reinstall',action='store_true',help='Выполнить чистую переустановку')
     install.add_argument('--yes',action='store_true');install.add_argument('--dry-run',action='store_true');install.add_argument('--json',action='store_true')
     for name in ['install','reinstall']:
-        item=sub.add_parser(name,parents=[install_options],conflict_handler='resolve',help='Установка и дополнение Dual' if name=='install' else 'Чистая переустановка с новыми ключами')
+        item=command(name,parents=[install_options],conflict_handler='resolve',description='Установка и дополнение Dual' if name=='install' else 'Чистая переустановка с новыми ключами')
         if name=='reinstall':item.add_argument('component',nargs='?',choices=['all','awg','wg'],default='all')
-    for name in ['status','start','stop','restart','settings','logs','diagnose','update','backup','uninstall']:
-        item=sub.add_parser(name)
+    descriptions={
+        'status':'Показать состояние выбранных сервисов',
+        'start':'Запустить выбранные сервисы',
+        'stop':'Остановить выбранные сервисы',
+        'restart':'Перезапустить выбранные сервисы',
+        'settings':'Показать настройки выбранных сервисов',
+        'logs':'Показать журналы выбранных сервисов',
+        'diagnose':'Проверить состояние VPN; с --probe-profile проверить трафик клиента',
+        'update':'Обновить образы по --manifest с резервной копией и откатом при сбое',
+        'backup':'Создать резервную копию выбранных сервисов',
+        'uninstall':'Удалить выбранные сервисы и рабочие данные с подтверждением; сохранить внутренние backup',
+    }
+    for name,description in descriptions.items():
+        item=command(name,description)
         item.add_argument('component',nargs='?',choices=['all','awg','wg'],default='all')
         item.add_argument('--json',action='store_true')
         if name in ['update','backup','uninstall']: item.add_argument('--yes',action='store_true')
@@ -980,25 +995,34 @@ def build_parser():
             item.add_argument('--internet-url',default='https://example.com/')
             item.add_argument('--dns',action='store_true',help='Проверить DNS из профиля через VPN')
 
-    restore=sub.add_parser('restore',help='Восстановить проверенный архив')
+    restore=command('restore',description='Восстановить проверенный архив')
     restore.add_argument('--file',required=True);restore.add_argument('--component',choices=['all','awg','wg'],required=True)
     restore.add_argument('--yes',action='store_true');restore.add_argument('--dry-run',action='store_true');restore.add_argument('--json',action='store_true')
-    password=sub.add_parser('reset-password',help='Сбросить пароль и отозвать сессии')
+    password=command('reset-password',description='Сбросить пароль и отозвать сессии')
     password.add_argument('--component',choices=['awg','wg'],required=True);password.add_argument('--password-stdin',action='store_true')
-    client=sub.add_parser('client',help='Управление клиентами через приложение')
+    client=command('client','Управлять клиентами: list, add, disable, enable, remove, export')
     commands=client.add_subparsers(dest='action',required=True)
-    for action in ['list','add','disable','enable','remove','export']:
-        item=commands.add_parser(action)
+    client_descriptions={
+        'list':'Показать клиентов выбранных сервисов',
+        'add':'Создать клиента группы home или guest',
+        'disable':'Отключить клиента, сохранив его профиль',
+        'enable':'Включить ранее отключённого клиента',
+        'remove':'Удалить клиента с подтверждением',
+        'export':'Экспортировать профиль: conf, QR-код или vpn:// для AWG',
+    }
+    for action,description in client_descriptions.items():
+        item=commands.add_parser(action,help=description,description=description)
         item.add_argument('--component',choices=['all','awg','wg'] if action=='list' else ['awg','wg'],required=action!='list',default='all' if action=='list' else None)
         if action!='list': item.add_argument('--name',required=True)
         if action=='add': item.add_argument('--group',choices=['home','guest'],default='guest')
         if action=='remove': item.add_argument('--yes',action='store_true')
         if action=='export': item.add_argument('--format',choices=['conf','qr','vpn-url'],required=True);item.add_argument('--output')
         item.add_argument('--json',action='store_true')
-    recover=sub.add_parser('recover',help='Восстановиться после прерванной операции')
+    recover=command('recover',description='Восстановиться после прерванной операции')
     recover.add_argument('--yes',action='store_true');recover.add_argument('--json',action='store_true')
-    auto=sub.add_parser('auto-update',help='Проверка stable-релиза после загрузки ОС')
-    auto.add_argument('action',choices=['enable','disable','status','run'])
+    auto=command('auto-update','Управлять проверкой и установкой stable-релиза после загрузки ОС')
+    auto.add_argument('action',choices=['enable','disable','status','run'],
+        help='enable — включить; disable — отключить; status — показать состояние; run — проверить stable-релиз и применить обновление')
     auto.add_argument('--json',action='store_true')
     return parser
 

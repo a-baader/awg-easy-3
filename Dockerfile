@@ -26,7 +26,7 @@ WORKDIR /app
 COPY src/package.json src/pnpm-lock.yaml ./
 RUN corepack enable && corepack prepare pnpm@11.19.0 --activate && pnpm install --prod --frozen-lockfile
 FROM --platform=linux/amd64 node:22.18.0-alpine3.22@sha256:dbb65b3b08bd9d4d4a85299ad4d668b0e709a0601cecb5969f4dbb1dd89408aa AS runtime-common
-LABEL org.opencontainers.image.title="VPN Easy Dual" org.opencontainers.image.source="https://github.com/a-baader/awg-easy-3" org.opencontainers.image.licenses="CC-BY-NC-SA-4.0"
+LABEL org.opencontainers.image.title="wg-dual-easy" org.opencontainers.image.source="https://github.com/a-baader/wg-dual-easy" org.opencontainers.image.licenses="CC-BY-NC-SA-4.0"
 RUN apk add --no-cache bash ca-certificates dumb-init iproute2 nftables
 WORKDIR /app
 COPY src/ ./

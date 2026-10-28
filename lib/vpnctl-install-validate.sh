@@ -9,9 +9,31 @@ awg_panel=${AWG_PANEL_PORT:-51821};wg_panel=${WG_PANEL_PORT-};lang=${AWG_LANG:-e
 awg_port_set=${AWG_PORT+x};wg_port_set=${WG_PORT+x}
 remove=0;reinstall=0
 for argument in "$@"; do
-  case "$argument" in -h|--help)
+  case "$argument" in -h|--help|-help)
     printf 'Использование: sudo vpnctl install [--host HOST] [--port UDP] [--panel-port TCP] [--lang LANG]\n'
-    printf 'Удаление: vpnctl uninstall [all|awg|wg]; чистая переустановка: vpnctl reinstall [all|awg|wg]\n'
+    cat <<'HELP'
+Команды:
+  help            Показать справку
+  install         Установить или дополнить сервисы AWG и WireGuard
+  reinstall       Выполнить чистую переустановку с новыми ключами
+  status          Показать состояние сервисов
+  start           Запустить сервисы
+  stop            Остановить сервисы
+  restart         Перезапустить сервисы
+  settings        Показать настройки сервисов
+  logs            Показать журналы сервисов
+  diagnose        Проверить состояние VPN и трафик клиента
+  update          Обновить образы по --manifest с резервной копией и откатом при сбое
+  backup          Создать резервную копию
+  uninstall       Удалить сервисы и рабочие данные, сохранив внутренние backup
+  restore         Восстановить проверенный архив
+  reset-password  Сбросить пароль и отозвать сессии
+  client          Управлять клиентами: list, add, disable, enable, remove, export
+  recover         Восстановиться после прерванной операции
+  auto-update     Управлять обновлением stable: enable, disable, status, run
+Компоненты: all — оба сервиса, awg — AmneziaWG, wg — WireGuard.
+После установки Python подробная справка: vpnctl КОМАНДА --help.
+HELP
     printf 'Доступны --uninstall и --reinstall. Удаление данных требует подтверждения, в автоматизации --yes.\n'
     exit 0 ;;
   esac

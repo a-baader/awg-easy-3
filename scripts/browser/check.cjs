@@ -32,7 +32,8 @@ const wait = async (condition, message, timeout = 12000) => {
         await tab.locator('#clients .client-card').first().waitFor();
       };
       step = target.backend + ': вход'; await login(page, target.password);
-      assert((await page.locator('#product-name').innerText()).includes(target.backend === 'wg' ? 'WG Easy Dual' : 'AWG'));
+      assert.equal(await page.locator('#product-name').innerText(), 'wg-dual-easy');
+      assert.equal(await page.locator('a[href^="https://github.com/alexsemenovru"]').count(), 0);
       const initialCount = await page.locator('#clients .client-card').count();
       step = target.backend + ': создание клиента';
       await page.locator('#show-create').click(); await page.locator('#client-name').fill('Браузерный клиент');

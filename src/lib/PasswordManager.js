@@ -42,7 +42,7 @@ class PasswordManager {
 
   async requireState() {
     const state = await this.store.load();
-    if (!state) throw new Error('AWG-Easy 3 is not initialized');
+    if (!state) throw new Error('wg-dual-easy is not initialized');
     return state;
   }
 

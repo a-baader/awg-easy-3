@@ -23,7 +23,7 @@ const validateInterface = (value) => {
 
 const requireManagedText = (value, marker, field) => {
   if (typeof value !== 'string' || !value.includes(marker)) {
-    throw new TypeError(`${field} is not a managed AWG-Easy 3 artifact`);
+    throw new TypeError(`${field} is not a managed wg-dual-easy artifact`);
   }
   return value.endsWith('\n') ? value : `${value}\n`;
 };
@@ -323,7 +323,7 @@ class RuntimeApplier {
     } catch (error) {
       errors.push(error);
     }
-    if (errors.length > 0) throw new AggregateError(errors, 'Failed to stop AWG-Easy 3 runtime cleanly');
+    if (errors.length > 0) throw new AggregateError(errors, 'Failed to stop wg-dual-easy runtime cleanly');
   }
 }
 

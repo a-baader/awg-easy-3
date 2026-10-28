@@ -1,4 +1,4 @@
-# Установка VPN Easy Dual
+# Установка wg-dual-easy
 
 Предварительный выпуск — **0.2.0-rc.2**. Reboot и полевые устройства остаются
 отложенными; результаты проверок — в [TEST_REPORT.md](TEST_REPORT.md).
@@ -11,8 +11,8 @@
 iproute2, nftables и Python 3 через поддерживаемый менеджер пакетов.
 
 ```bash
-git clone https://github.com/a-baader/awg-easy-3.git
-cd awg-easy-3
+git clone https://github.com/a-baader/wg-dual-easy.git
+cd wg-dual-easy
 sudo ./vpnctl install --host PUBLIC_IP_OR_DOMAIN --lang ru
 ```
 

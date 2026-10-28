@@ -7,7 +7,7 @@ from urllib.request import Request, urlopen
 from urllib.error import HTTPError
 from vpnctl_common import ManagerError, atomic_json
 
-REPOSITORY='a-baader/awg-easy-3'
+REPOSITORY='a-baader/wg-dual-easy'
 
 def backend(root):
     if (root/'run/systemd/system').is_dir() and shutil.which('systemctl'):return 'systemd'
@@ -17,7 +17,7 @@ def backend(root):
 def files(root,kind):
     if kind=='systemd':return {
         root/'etc/systemd/system/vpn-easy-dual-update.service':('''[Unit]
-Description=Проверка стабильного обновления VPN Easy Dual
+Description=Проверка стабильного обновления wg-dual-easy
 Wants=network-online.target
 After=network-online.target docker.service
 ConditionPathExists=/etc/vpn-easy-dual/config.json
@@ -29,7 +29,7 @@ TimeoutStartSec=15min
 TimeoutStopSec=3min
 ''',0o644),
         root/'etc/systemd/system/vpn-easy-dual-update.timer':('''[Unit]
-Description=Проверка стабильного обновления VPN Easy Dual после загрузки
+Description=Проверка стабильного обновления wg-dual-easy после загрузки
 
 [Timer]
 OnActiveSec=5min
@@ -43,7 +43,7 @@ WantedBy=timers.target
 ''',0o644)}
     if kind=='openrc':return {
         root/'etc/init.d/vpn-easy-dual-update':('''#!/sbin/openrc-run
-description="Проверка стабильного обновления VPN Easy Dual после загрузки"
+description="Проверка стабильного обновления wg-dual-easy после загрузки"
 command="/usr/local/libexec/vpn-easy-dual-update-on-boot"
 command_background="yes"
 pidfile="/run/vpn-easy-dual-update.pid"
@@ -128,7 +128,11 @@ def fetch_manifest(version,fetch=download):
     value=json.loads(manifest)
     if value.get('version')!=version or value.get('platform')!='linux/amd64' or not re.fullmatch(r'[a-f0-9]{40}',value.get('source_commit','')):
         raise ManagerError('Манифест не соответствует выбранному релизу',65)
-    if set(value.get('images',{}))!={'awg','wg'} or any(not re.fullmatch('ghcr.io/a-baader/awg-easy-3-'+name+r'@sha256:[a-f0-9]{64}',image) for name,image in value['images'].items()):
+    namespaces=['wg-dual-easy']
+    # Уже опубликованные RC используют прежние имена образов.
+    if version in ('0.2.0-rc.1','0.2.0-rc.2'):namespaces.append('awg-easy-3')
+    image_pattern='ghcr.io/a-baader/(?:'+'|'.join(map(re.escape,namespaces))+')-'
+    if set(value.get('images',{}))!={'awg','wg'} or any(not re.fullmatch(image_pattern+name+r'@sha256:[a-f0-9]{64}',image) for name,image in value['images'].items()):
         raise ManagerError('Манифест содержит неподходящие образы',65)
     return value
 

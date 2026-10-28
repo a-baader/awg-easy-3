@@ -1,6 +1,6 @@
-# VPN Easy Dual
+# wg-dual-easy
 
-> Предварительный выпуск **VPN Easy Dual 0.2.0-rc.2** — **0.2.0-rc.2**.
+> Предварительный выпуск **wg-dual-easy 0.2.0-rc.2** — **0.2.0-rc.2**.
 > [Описание выпуска](docs/releases/v0.2.0-rc.2.md). Два контейнера AWG/WG и единый host CLI.
 > Для установки используйте [INSTALL_DUAL.ru.md](docs/INSTALL_DUAL.ru.md),
 > для сборки — [BUILD.md](docs/BUILD.md), для команд — [CLI.ru.md](docs/CLI.ru.md).
@@ -28,7 +28,7 @@
 
 ```bash
 git clone https://github.com/alexsemenovru/awg-easy-3.git
-cd awg-easy-3
+cd wg-dual-easy
 sudo ./install.sh --host 公网IP或域名 --lang zh-cn
 ```
 

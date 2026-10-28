@@ -46,5 +46,5 @@ accordance with those package licenses as well as the licenses listed above.
 
 В образ WG копируются оригинальные LICENSE/COPYING. Протокол и исходники этих
 компонентов не изменяются. Их точные исходники доступны по указанным commit.
-Изменения VPN Easy Dual основаны на alexsemenovru/awg-easy-3 v0.1.6;
+Изменения wg-dual-easy основаны на alexsemenovru/awg-easy-3 v0.1.6;
 атрибуция исходного проекта и условия CC BY-NC-SA 4.0 сохраняются.

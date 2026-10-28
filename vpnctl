@@ -18,7 +18,7 @@ config=/etc/vpn-easy-dual/config.json
 take_config=0
 for argument in "$@"; do
   if [ "$take_config" -eq 1 ]; then config=$argument; take_config=0; continue; fi
-  case "$argument" in --config) take_config=1 ;; --config=*) config=${argument#--config=} ;; --help|-h) action=help; break ;; -*) action=install; break ;; *) action=$argument; break ;; esac
+  case "$argument" in --config) take_config=1 ;; --config=*) config=${argument#--config=} ;; --help|-h|-help) action=help; break ;; -*) action=install; break ;; *) action=$argument; break ;; esac
 done
 case "$config" in /*) ;; *) config=$base/$config ;; esac
 if [ "$action" = help ] && ! command -v python3 >/dev/null 2>&1; then
@@ -32,7 +32,7 @@ if [ "$action" = install ] || [ "$action" = reinstall ]; then
     sh "$base/lib/vpnctl-install-validate.sh" "$@"
   fi
   for argument in "$@"; do
-    case "$argument" in --help|-h) exit 0 ;; esac
+    case "$argument" in --help|-h|-help) exit 0 ;; esac
   done
 fi
 if { [ "$action" = install ] || [ "$action" = reinstall ]; } && [ ! -r "$config" ]; then

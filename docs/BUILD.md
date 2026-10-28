@@ -1,4 +1,4 @@
-# Сборка VPN Easy Dual
+# Сборка wg-dual-easy
 
 Linux/amd64, Docker Engine; публикация образов не требуется. Оба target
 используют общую кодовую базу и digest-pinned base images. По умолчанию

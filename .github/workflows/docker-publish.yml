@@ -154,12 +154,12 @@ jobs:
           elif [ "$prerelease" = true ]; then
             gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" \
               --verify-tag --prerelease --latest=false \
-              --title "VPN Easy Dual $GITHUB_REF_NAME — предварительный выпуск" \
+              --title "wg-dual-easy $GITHUB_REF_NAME — предварительный выпуск" \
               --notes-file release-assets/notes.md
           else
             gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" \
               --verify-tag --latest \
-              --title "VPN Easy Dual $GITHUB_REF_NAME" \
+              --title "wg-dual-easy $GITHUB_REF_NAME" \
               --notes-file release-assets/notes.md
           fi
           gh release upload "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" \

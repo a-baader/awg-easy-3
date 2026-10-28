@@ -20,7 +20,7 @@ const printBootstrap = async (result) => {
   }
   process.stdout.write([
     '',
-    'AWG-Easy 3 initialized successfully.',
+    'wg-dual-easy initialized successfully.',
     `Panel after VPN connection: ${result.panelUrl}`,
     `Panel password (shown once): ${result.bootstrapPassword}`,
     '',
@@ -76,7 +76,7 @@ const main = async () => {
 
   await application.backend.validateEnvironment();
   const address = await application.start();
-  process.stdout.write(`AWG-Easy 3 panel listening on http://${address.address}:${address.port}\n`);
+  process.stdout.write(`wg-dual-easy panel listening on http://${address.address}:${address.port}\n`);
   let stopping = false;
   const stop = async () => {
     if (stopping) return;
