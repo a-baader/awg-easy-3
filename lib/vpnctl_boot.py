@@ -106,7 +106,7 @@ def stable_version(value):
     if not match:raise ManagerError('Некорректная версия релиза',65)
     return tuple(int(match[i]) for i in (1,2,3))+(0 if match[4] else 1,)
 
-def fetch_release(current,fetch=download):
+def fetch_release(current=None,fetch=download):
     try:release=json.loads(fetch('https://api.github.com/repos/'+REPOSITORY+'/releases/latest'))
     except HTTPError as error:
         if error.code==404:return None
@@ -114,7 +114,7 @@ def fetch_release(current,fetch=download):
     tag=release.get('tag_name','')
     if release.get('draft') or release.get('prerelease') or not re.fullmatch(r'v\d+\.\d+\.\d+',tag):
         raise ManagerError('Сервер не вернул стабильный опубликованный релиз',65)
-    if stable_version(tag[1:])<=stable_version(current):return None
+    if current is not None and stable_version(tag[1:])<=stable_version(current):return None
     return fetch_manifest(tag[1:],fetch)
 
 def fetch_manifest(version,fetch=download):

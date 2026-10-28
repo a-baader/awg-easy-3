@@ -17,7 +17,7 @@ SHARED_ROOTS={Path(path) for path in ['/', '/etc', '/var', '/var/lib', '/var/bac
 
 
 def check_paths(manager,config=None):
-    if manager.root in SHARED_ROOTS or manager.root.resolve()!=manager.root or manager.root==manager.project or manager.root in manager.project.parents:
+    if manager.root in SHARED_ROOTS or manager.root.resolve()!=manager.root or manager.root==manager.project or any(manager.root/name==manager.project or manager.root/name in manager.project.parents for name in DIRECTORIES):
         raise ManagerError('Небезопасный каталог manager для purge',73)
     for name in (*DIRECTORIES,'operations.jsonl','compose.json','transaction.json',manager.path.name):
         path=manager.root/name

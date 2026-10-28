@@ -59,6 +59,7 @@ sudo vpnctl client export --component wg --name admin --format conf --output /ro
 sudo vpnctl
 sudo vpnctl status all
 sudo vpnctl diagnose all
+sudo vpnctl update
 sudo vpnctl auto-update status
 ```
 

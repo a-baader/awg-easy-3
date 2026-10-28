@@ -23,6 +23,8 @@ from vpnctl_common import ManagerError, atomic_json, atomic_write, execute, glob
 from vpnctl_backup import create_archive, verify_archive, extract_component
 import vpnctl_boot
 
+UPDATE_API_VERSION=1
+
 class Parser(argparse.ArgumentParser):
     def __init__(self,*args,**kwargs):
         kwargs['add_help']=False
@@ -715,6 +717,10 @@ class Manager:
             for directory in staged.values(): shutil.rmtree(directory,ignore_errors=True)
 
     def rollback(self,journal):
+        if journal['operation']=='source-update':
+            if journal.get('phase')!='prepared':raise ManagerError('Неизвестная фаза обновления исходников',65)
+            self.owned(journal['previous'])
+            self.journal.unlink(missing_ok=True);return
         if journal.get('phase')=='commit_uncertain':
             raise ManagerError('Не подтверждена запись точки фиксации; режим обслуживания сохранён. Исправьте ошибку хранения и выполните vpnctl recover',75)
         # register мог успеть сохранить undo-запись после последней фазы в памяти.
@@ -780,13 +786,17 @@ class Manager:
 
     def update(self,args):
         config=self.config(); selected=self.selected(config,args.component)
-        if not args.manifest: raise ManagerError('Укажите --manifest с проверенным релизом; контейнеры автоматически не публикуются',64)
+        if not args.manifest:
+            import vpnctl_source_update
+            return vpnctl_source_update.update(self,args)
         try: release=json.loads(Path(args.manifest).read_text())
         except (OSError,ValueError): raise ManagerError('Не удалось прочитать манифест релиза',65) from None
         if not isinstance(release.get('version'),str) or not re.fullmatch(r'\d+\.\d+\.\d+(?:-rc\.[1-9]\d*)?',release['version']) or not release.get('images'): raise ManagerError('Некорректный манифест релиза',65)
         candidate=copy.deepcopy(config)
         for item in candidate['components'].values():item.setdefault('version',config['version'])
         candidate['version']=release['version']
+        candidate['project']=str(self.project)
+        if getattr(args,'source_commit',None):candidate['source_commit']=args.source_commit
         for name in selected:
             reference=release['images'].get(name)
             if not isinstance(reference,str) or ':latest' in reference: raise ManagerError('Релиз должен указывать точный образ компонента',65)
@@ -986,7 +996,7 @@ def build_parser():
         'settings':'Показать настройки выбранных сервисов',
         'logs':'Показать журналы выбранных сервисов',
         'diagnose':'Проверить состояние VPN; с --probe-profile проверить трафик клиента',
-        'update':'Обновить образы по --manifest с резервной копией и откатом при сбое',
+        'update':'Обновить исходники и готовые образы из последнего стабильного релиза с резервной копией и откатом',
         'backup':'Создать резервную копию выбранных сервисов',
         'uninstall':'Удалить выбранные сервисы и рабочие данные с подтверждением; сохранить внутренние backup',
     }
@@ -996,7 +1006,7 @@ def build_parser():
         item.add_argument('--json',action='store_true')
         if name in ['update','backup','uninstall']: item.add_argument('--yes',action='store_true')
         if name in ['update','uninstall']: item.add_argument('--dry-run',action='store_true')
-        if name=='update': item.add_argument('--manifest')
+        if name=='update': item.add_argument('--manifest',help='Необязательно: обновить только образы по локальному манифесту')
         if name=='backup': item.add_argument('--output')
         if name=='logs': item.add_argument('--tail',type=int,default=100);item.add_argument('--follow',action='store_true')
         if name=='diagnose':
@@ -1062,7 +1072,7 @@ def menu(manager):
     if command[0]=='purge':return command
     if command[0]=='restore': return command+['--file',input('Путь к архиву: ').strip(),'--component',input('Компонент awg/wg/all: ').strip()]
     if command[0]=='reset-password': return command+['--component',input('Компонент awg/wg: ').strip()]
-    if command[0]=='update': return command+[input('Компонент all/awg/wg: ').strip() or 'all','--manifest',input('Манифест релиза: ').strip()]
+    if command[0]=='update': return command
     if command[0]=='client':
         action=input('list/add/disable/enable/remove/export: ').strip() or 'list'
         target=input('Компонент awg/wg'+('/all' if action=='list' else '')+': ').strip()
@@ -1120,7 +1130,7 @@ def main(project,argv=None):
             confirmation(args,'Будут удалены ВСЕ сервисы приложения, клиенты, ключи, пароли, настройки, внутренние backup и установленный vpnctl. Восстановление из внутренних backup станет невозможно. Исходники, Docker, чужие ресурсы и текущий forwarding сохраняются')
         elif args.command in ('uninstall','reinstall'):
             confirmation(args,'Будут удалены рабочие клиенты, ключи, пароль, настройки и bootstrap-профили выбранных VPN. Внутренние backup со старыми ключами сохраняются. Docker, чужие ресурсы и текущий forwarding сохраняются. После удаления последнего VPN установленная команда vpnctl удаляется')
-        elif args.command in ('backup','restore','update','recover') or args.command=='client' and args.action=='remove':
+        elif args.command in ('backup','restore','recover') or args.command=='client' and args.action=='remove':
             confirmation(args,'Операция может остановить выбранные VPN или заменить данные')
         if args.command=='install' and manager.config(False) and set(manager.config()['components'])=={'awg','wg'}:
             if not sys.stdin.isatty():raise ManagerError('Установка уже существует. Используйте vpnctl status, uninstall или reinstall; для удаления данных требуется --yes',64)

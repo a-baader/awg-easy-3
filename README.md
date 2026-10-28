@@ -61,6 +61,8 @@ sudo vpnctl client export --component wg --name admin --format conf --output /ro
 `sudo vpnctl reset-password --component wg`: новый пароль будет показан один раз.
 
 После установки: `sudo vpnctl` — меню, `sudo vpnctl status all` — состояние обоих VPN.
+Обновление исходников и готовых образов до последнего stable-релиза: `sudo vpnctl update`.
+При отсутствии нового stable-релиза изменений не будет; ручной manifest и сборка не нужны.
 Подробнее: [русская инструкция](README.ru.md#обновление-и-управление).
 
 ## Справка оригинального AWG-Easy 3

@@ -24,7 +24,10 @@ vpnctl logs wg --follow
 vpnctl diagnose all --json
 vpnctl backup all --output /root/dual-backup.tar.gz --yes
 vpnctl restore --file /root/dual-backup.tar.gz --component wg --yes
-vpnctl update all --manifest /root/release.json --yes
+vpnctl update
+vpnctl update --dry-run
+# Дополнительный режим, только образы из локального manifest:
+vpnctl update all --manifest /root/release.json
 vpnctl reset-password --component wg
 vpnctl client list --component all --json
 vpnctl client add --component wg --name Телефон --group home
@@ -128,3 +131,30 @@ sudo vpnctl purge --yes --json
 purge не создаёт заново конфигурацию или журнал операций.
 
 Протокол проверок: [PURGE_TEST_REPORT.ru.md](PURGE_TEST_REPORT.ru.md).
+
+## Обновление без дополнительных опций
+
+`sudo vpnctl update` проверяет последний опубликованный стабильный релиз
+`a-baader/wg-dual-easy`, проверяет manifest/SHA256SUMS, загружает его исходники
+и готовые образы и обновляет все установленные VPN с snapshot и откатом.
+RC и draft не выбираются; версии не понижаются. При отсутствии stable-релиза
+или при уже установленном точном релизе команда завершается без изменений.
+`--yes` для update не нужен, в том числе без терминала.
+
+`vpnctl update --dry-run` проверяет релиз и показывает план, не загружая
+исходники и образы и не меняя установку. Сетевой сбой возвращает ошибку и
+сохраняет работающую версию. `vpnctl update awg` или `wg` ограничивает обновление
+контейнеров указанным сервисом; общие исходники CLI обновляются до релиза.
+
+Исходники хранятся по версиям в `sources` рядом с конфигурацией manager
+(обычно `/etc/vpn-easy-dual/sources/vВЕРСИЯ-COMMIT`). Указатель установленного
+CLI переключается на новые исходники только внутри транзакции обновления.
+Исходный Git-каталог, локальные изменения и предыдущие исходники сохраняются.
+Изменённый кеш релиза не перезаписывается. `purge` также сохраняет исходники.
+Git нужен для получения исходников; Docker используется для загрузки готовых
+образов, сборка приложений на сервере не выполняется.
+
+Дополнительный `--manifest FILE` сохраняет прежний режим: обновление образов
+по явно предоставленному манифесту без автоматической замены исходников.
+Boot-проверка `auto-update` сохраняет отдельный режим обновления образов.
+Подробности: [UPDATE_ROLLBACK.ru.md](UPDATE_ROLLBACK.ru.md).

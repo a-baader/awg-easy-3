@@ -38,6 +38,7 @@ jobs:
           python3 ../scripts/test-vpnctl.py
           python3 ../scripts/test-vpnctl-install-contract.py
           python3 ../scripts/test-vpnctl-purge.py
+          python3 ../scripts/test-vpnctl-source-update.py
           python3 ../scripts/test-dual-preflight.py
           python3 -m py_compile ../lib/vpnctl_manager.py ../lib/vpnctl_backup.py ../lib/vpnctl_common.py
 
@@ -140,6 +141,7 @@ jobs:
           sudo -E python3 scripts/test-vpnctl-uninstall.py
           sudo -E python3 scripts/test-vpnctl-reinstall.py
           sudo -E python3 scripts/test-vpnctl-purge-integration.py
+          sudo -E python3 scripts/test-vpnctl-source-update-integration.py
       - name: Браузерная проверка через настоящие Home VPN
         env:
           TEST_AWG_IMAGE: vpn-easy-awg:dual-stage7
