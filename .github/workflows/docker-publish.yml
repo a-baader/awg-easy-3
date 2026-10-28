@@ -140,6 +140,8 @@ jobs:
           cp image-digests/image-digest-awg/image-digest.json merged-digests/awg.json
           cp image-digests/image-digest-wg/image-digest.json merged-digests/wg.json
           python3 scripts/prepare-release-assets.py --digests merged-digests --output release-assets --repository "$GITHUB_REPOSITORY" --commit "$GITHUB_SHA"
+      - name: Проверить анонимный доступ к обоим образам до создания релиза
+        run: python3 scripts/check-release-images.py release-assets/release-manifest.json
       - name: Publish release notes after the image is available
         env:
           GH_TOKEN: ${{ github.token }}
