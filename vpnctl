@@ -45,7 +45,9 @@ if { [ "$action" = install ] || [ "$action" = reinstall ]; } && [ ! -r "$config"
     mkdir "$bootstrap_lock" 2>/dev/null || { printf 'Ошибка: другая операция установки или обновления уже выполняется\n' >&2; exit 73; }
     printf '%s\n' "$$" > "$bootstrap_lock/pid"
     trap 'if [ -r "$bootstrap_lock/pid" ] && [ "$(cat "$bootstrap_lock/pid")" = "$$" ]; then rm -f "$bootstrap_lock/pid"; rmdir "$bootstrap_lock" 2>/dev/null || true; fi' 0
-    sh "$base/lib/dual-dependencies.sh" "$provision"
+    printf '[Установка] Проверка и подготовка системных зависимостей\n' >&2
+    sh "$base/lib/dual-dependencies.sh" "$provision" >&2
+    printf '[Установка] Системные зависимости готовы\n' >&2
     VPNCTL_BOOTSTRAP_LOCK=$$
     export VPNCTL_BOOTSTRAP_LOCK
   fi

@@ -38,6 +38,9 @@ sudo ./vpnctl install --host PUBLIC_IP_OR_DOMAIN --lang ru
 ```
 
 Замените `PUBLIC_IP_OR_DOMAIN` публичным IP-адресом или доменом вашего VPS.
+Прогресс установки виден в терминале. По умолчанию итог — читаемый текст и
+публичный файл `/root/wg-dual-easy-install-result.json` без паролей и ссылок
+профилей. Для JSON в stdout укажите `--json`. [Форматы вывода](docs/CLI_OUTPUT.ru.md).
 Установщик скачает готовые AWG/WG-образы текущего выпуска и проверит manifest;
 собирать образы на сервере не требуется. Совместимый вход
 `sudo ./install.sh --host PUBLIC_IP_OR_DOMAIN --lang ru` выполняет ту же установку.

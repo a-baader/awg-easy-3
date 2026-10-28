@@ -22,8 +22,14 @@ from dual_preflight import PreflightError, environment_check, inspect_conflicts,
 from vpnctl_common import ManagerError, atomic_json, atomic_write, execute, global_lock, redact, durable_replace
 from vpnctl_backup import create_archive, verify_archive, extract_component
 import vpnctl_boot
+from vpnctl_progress import installation_progress
+from vpnctl_output import emit_result,format_human
 
 UPDATE_API_VERSION=1
+
+def ask(message):
+    print(message,end='',file=sys.stderr,flush=True)
+    return input()
 
 class Parser(argparse.ArgumentParser):
     def __init__(self,*args,**kwargs):
@@ -45,6 +51,10 @@ class Manager:
         self.bootstrap_results={}
         self.resolved_releases={}
         self.system_root=Path(system_root)
+
+    def install_stage(self,message):
+        progress=getattr(self,'_installation_progress',None)
+        if progress:progress.stage(message)
 
     def config(self, required=True):
         if not self.path.is_file():
@@ -128,6 +138,7 @@ class Manager:
         if name not in ('awg','wg'):raise ManagerError('Неизвестный компонент релиза',65)
         vpnctl_boot.stable_version(version)
         if version not in self.resolved_releases:
+            self.install_stage('Получение и проверка манифеста релиза')
             try:value=vpnctl_boot.fetch_manifest(version)
             except Exception as error:raise ManagerError('Не удалось проверить manifest выбранного релиза; укажите опубликованные digest или используйте --build',69) from error
             atomic_json(self.root/'releases'/('v'+version+'.json'),value)
@@ -139,9 +150,11 @@ class Manager:
         raw=self.run(['docker','image','inspect',reference],check=False)
         if raw is None:
             if '@sha256:' not in reference: raise ManagerError('Образ отсутствует локально; укажите digest или сначала соберите target',69)
+            self.install_stage('Загрузка образа '+('AWG' if backend=='amneziawg' else 'WG'))
             self.run(['docker','pull',reference]); raw=self.run(['docker','image','inspect',reference])
         info=json.loads(raw)[0]
         if info.get('Os')!='linux' or info.get('Architecture')!='amd64': raise ManagerError('Образ должен быть Linux/amd64',65)
+        self.install_stage('Проверка образа '+('AWG' if backend=='amneziawg' else 'WG'))
         env=info['Config'].get('Env',[])
         if 'VPN_BACKEND='+backend not in env: raise ManagerError('Backend образа не соответствует компоненту',65)
         self.run(['docker','run','--rm','--network','none','--read-only','--entrypoint','node',info['Id'],'-e',
@@ -156,6 +169,7 @@ class Manager:
             reference=args.awg_image if name=='awg' else args.wg_image
             if not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9._/:-]*',reference) or reference.startswith('sha256:'):
                 raise ManagerError('Для --build укажите локальный tag образа',64)
+            self.install_stage('Сборка образа '+name.upper())
             self.run(['docker','build','--target',name,'--tag',reference,str(self.project)],env=environment)
 
     def validate_release_image(self,item,version):
@@ -202,6 +216,7 @@ class Manager:
         return self.backup_selected(config,selected,output)
 
     def backup_selected(self,config,selected,output=None):
+        self.install_stage('Создание резервной копии')
         destination=output or str(self.root/'backups'/('backup-'+datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%S')+'-'+uuid.uuid4().hex[:8]+'.tar.gz'))
         for item in config['components'].values():
             data=Path(item['data_directory']).resolve(); target=Path(destination).resolve()
@@ -470,7 +485,7 @@ class Manager:
         if explicit: raise ManagerError('Явно заданный порт занят: '+str(port)+'/'+protocol+'; укажите свободный порт, например '+str(suggestion),73)
         if not getattr(self,'interactive',sys.stdin.isatty()): raise ManagerError('Порт по умолчанию занят; явно укажите свободный порт, например '+str(suggestion),73)
         while True:
-            try:answer=input('Порт '+str(port)+'/'+protocol+' занят. Другой порт ['+str(suggestion)+']: ').strip()
+            try:answer=ask('Порт '+str(port)+'/'+protocol+' занят. Другой порт ['+str(suggestion)+']: ').strip()
             except EOFError:raise ManagerError('Выбор порта отменён',64) from None
             value=int(answer) if answer.isdecimal() else suggestion if not answer else 0
             if 1<=value<=65535 and not self.port_used(protocol,value):return value
@@ -482,6 +497,7 @@ class Manager:
           "const {StateStore}=require('/app/lib/StateStore');new StateStore('/data/state.json').load().then(s=>{if(!s)throw Error();require('/app/lib/VpnBackend').createBackend(process.env.VPN_BACKEND).assertState(s)}).catch(()=>process.exit(1))"])
 
     def initialize(self,name,item,config):
+        self.install_stage('Подготовка конфигурации и профиля '+name.upper())
         directory=Path(item['data_directory'])
         if (directory/'state.json').exists(): self.validate_state_image(item); return
         if directory.exists() and any(directory.iterdir()): raise ManagerError('Каталог данных не пуст и не распознан: '+str(directory),73)
@@ -514,6 +530,7 @@ class Manager:
         }
 
     def sync_boot_hook(self):
+        self.install_stage('Настройка проверки обновлений после загрузки ОС')
         try:
             result=vpnctl_boot.configure(self,self.config().get('auto_check',False))
             if result['backend']=='unsupported':print('Предупреждение: systemd/OpenRC недоступен; автоматическая проверка после загрузки не включена',file=sys.stderr)
@@ -523,6 +540,7 @@ class Manager:
             return {'enabled':False,'configuration_required':True}
 
     def register(self,config):
+        self.install_stage('Регистрация vpnctl и системных файлов')
         records={}
         if self.journal.exists():
             journal=json.loads(self.journal.read_text())
@@ -565,16 +583,20 @@ class Manager:
             if legacy and filename==self.system_root/'usr/local/sbin/awg-easy-3' and original.is_file() and not filename.is_symlink() and filename.read_bytes()==original.read_bytes():continue
             raise ManagerError('Системный путь уже занят; чужой файл не изменён: '+str(filename),73)
 
+    @installation_progress
     def install(self,args):
+        self.install_stage('Проверка системы и текущей установки')
         existing=self.config(False)
         if existing and set(existing['components'])=={'awg','wg'}: return {'installed':True,'unchanged':True,'components':list(existing['components'])}
         if existing: return self.extend(existing,args)
         environment_check(run=lambda command:self.run(command))
+        self.install_stage('Проверка сети, портов и системных ресурсов')
         plan=self.plan_install(args)
         legacy=plan.get('legacy_origin')
         self.check_system_paths(legacy=legacy)
         proof={'awg':legacy['item']} if legacy else {}
         inspect_conflicts(plan['components'],owned=proof,run=lambda command:self.run(command))
+        self.install_stage('Подготовка образов AWG и WG')
         if args.build:self.build_images(args,list(plan['components']))
         for name,item in plan['components'].items():
             item['image_ref']=self.resolve_image_reference(item['image_ref'])
@@ -592,6 +614,7 @@ class Manager:
         self.save_journal(journal)
         try:
             if legacy:
+                self.install_stage('Резервная копия и миграция существующего AWG')
                 self.run(['sh','-s',legacy['directory']],input='project_dir=$1\n. "$project_dir/lib/auto-update.sh"\nawg_easy_auto_update_disable\n')
                 self.run(['docker','stop',legacy['item']['container']])
                 snapshot=str(self.root/'backups'/('before-migration-'+uuid.uuid4().hex+'.tar.gz'))
@@ -602,7 +625,9 @@ class Manager:
             plan['maintenance_components']=list(plan['components'])
             self.write_config(plan)
             self.run(['sysctl','-w','net.ipv4.ip_forward=1']);self.run(['sysctl','-w','net.ipv6.conf.all.forwarding=1'])
-            for name,item in plan['components'].items(): self.compose('up','-d','--no-deps',name+'-easy');self.health(item)
+            for name,item in plan['components'].items():
+                self.install_stage('Запуск '+name.upper()+' и ожидание готовности')
+                self.compose('up','-d','--no-deps',name+'-easy');self.health(item)
             self.register(plan)
             journal['candidate']=copy.deepcopy(plan)
             self.commit_transaction(journal)
@@ -634,6 +659,7 @@ class Manager:
                     self.run(['nft','delete','rule',family,'filter','DOCKER-USER','handle',str(rule['handle'])])
 
     def extend(self,existing,args):
+        self.install_stage('Проверка системы и добавление недостающего VPN')
         environment_check(run=lambda command:self.run(command))
         self.check_system_paths(existing)
         candidate=self.plan_install(args);selected=[name for name in candidate['components'] if name not in existing['components']]
@@ -651,7 +677,9 @@ class Manager:
             for name in selected:self.initialize(name,candidate['components'][name],candidate)
             candidate['maintenance_components']=selected
             self.write_config(candidate)
-            for name in selected:self.compose('up','-d','--no-deps',name+'-easy');self.health(candidate['components'][name])
+            for name in selected:
+                self.install_stage('Запуск '+name.upper()+' и ожидание готовности')
+                self.compose('up','-d','--no-deps',name+'-easy');self.health(candidate['components'][name])
             self.register(candidate);journal['candidate']=copy.deepcopy(candidate);self.commit_transaction(journal)
             self.sync_boot_hook()
             return {'added':selected,'existing_components_unchanged':True}
@@ -717,6 +745,7 @@ class Manager:
             for directory in staged.values(): shutil.rmtree(directory,ignore_errors=True)
 
     def rollback(self,journal):
+        self.install_stage('Восстановление после ошибки установки')
         if journal['operation']=='source-update':
             if journal.get('phase')!='prepared':raise ManagerError('Неизвестная фаза обновления исходников',65)
             self.owned(journal['previous'])
@@ -826,7 +855,9 @@ class Manager:
         except BaseException:
             self.rollback(journal); raise
 
+    @installation_progress
     def reinstall(self,args):
+        self.install_stage('Проверка системы и текущей установки')
         previous=self.config(False)
         if not previous:return self.install(args)
         selected=self.selected(previous,args.component)
@@ -871,7 +902,9 @@ class Manager:
                 self.initialize(name,candidate['components'][name],candidate)
             candidate['maintenance_components']=selected
             self.write_config(candidate)
-            for name in selected:self.compose('up','-d','--no-deps',name+'-easy');self.health(candidate['components'][name])
+            for name in selected:
+                self.install_stage('Запуск '+name.upper()+' и ожидание готовности')
+                self.compose('up','-d','--no-deps',name+'-easy');self.health(candidate['components'][name])
             self.register(candidate);journal['candidate']=copy.deepcopy(candidate)
             self.commit_transaction(journal)
             self.sync_boot_hook()
@@ -961,7 +994,7 @@ def valid_port(value):
 
 def build_parser():
     parser=Parser(prog='vpnctl',description='Единое управление AWG и стандартным WireGuard',
-        epilog='Подробнее о параметрах: vpnctl КОМАНДА --help. Компонент all означает оба сервиса, awg — AmneziaWG, wg — WireGuard.')
+        epilog='По умолчанию — читаемый вывод и JSON-файл в /root; --json — JSON в stdout. Подробнее о параметрах: vpnctl КОМАНДА --help. Компонент all означает оба сервиса, awg — AmneziaWG, wg — WireGuard.')
     parser.add_argument('--config',default='/etc/vpn-easy-dual/config.json',help='Путь к конфигурации manager')
     sub=parser.add_subparsers(dest='command')
     def command(name,description,**kwargs):
@@ -984,7 +1017,7 @@ def build_parser():
     actions=install.add_mutually_exclusive_group()
     actions.add_argument('--uninstall',action='store_true',help='Удалить выбранную установку')
     actions.add_argument('--reinstall',action='store_true',help='Выполнить чистую переустановку')
-    install.add_argument('--yes',action='store_true');install.add_argument('--dry-run',action='store_true');install.add_argument('--json',action='store_true')
+    install.add_argument('--yes',action='store_true');install.add_argument('--dry-run',action='store_true');install.add_argument('--json',action='store_true',help='Вывести JSON в stdout вместо читаемого результата и файла отчёта')
     for name in ['install','reinstall']:
         item=command(name,parents=[install_options],conflict_handler='resolve',description='Установка и дополнение Dual' if name=='install' else 'Чистая переустановка с новыми ключами')
         if name=='reinstall':item.add_argument('component',nargs='?',choices=['all','awg','wg'],default='all')
@@ -1003,7 +1036,7 @@ def build_parser():
     for name,description in descriptions.items():
         item=command(name,description)
         item.add_argument('component',nargs='?',choices=['all','awg','wg'],default='all')
-        item.add_argument('--json',action='store_true')
+        item.add_argument('--json',action='store_true',help='Вывести JSON в stdout вместо читаемого результата и файла отчёта')
         if name in ['update','backup','uninstall']: item.add_argument('--yes',action='store_true')
         if name in ['update','uninstall']: item.add_argument('--dry-run',action='store_true')
         if name=='update': item.add_argument('--manifest',help='Необязательно: обновить только образы по локальному манифесту')
@@ -1018,10 +1051,10 @@ def build_parser():
     purge=command('purge','Удалить все сервисы, рабочие данные, внутренние backup и установленный vpnctl; сохранить исходники')
     purge.add_argument('--yes',action='store_true',help='Явно подтвердить полное удаление')
     purge.add_argument('--dry-run',action='store_true',help='Показать план без удаления')
-    purge.add_argument('--json',action='store_true')
+    purge.add_argument('--json',action='store_true',help='Вывести JSON в stdout вместо читаемого результата и файла отчёта')
     restore=command('restore',description='Восстановить проверенный архив')
     restore.add_argument('--file',required=True);restore.add_argument('--component',choices=['all','awg','wg'],required=True)
-    restore.add_argument('--yes',action='store_true');restore.add_argument('--dry-run',action='store_true');restore.add_argument('--json',action='store_true')
+    restore.add_argument('--yes',action='store_true');restore.add_argument('--dry-run',action='store_true');restore.add_argument('--json',action='store_true',help='Вывести JSON в stdout вместо читаемого результата и файла отчёта')
     password=command('reset-password',description='Сбросить пароль и отозвать сессии')
     password.add_argument('--component',choices=['awg','wg'],required=True);password.add_argument('--password-stdin',action='store_true')
     client=command('client','Управлять клиентами: list, add, disable, enable, remove, export')
@@ -1041,47 +1074,47 @@ def build_parser():
         if action=='add': item.add_argument('--group',choices=['home','guest'],default='guest')
         if action=='remove': item.add_argument('--yes',action='store_true')
         if action=='export': item.add_argument('--format',choices=['conf','qr','vpn-url'],required=True);item.add_argument('--output')
-        item.add_argument('--json',action='store_true')
+        item.add_argument('--json',action='store_true',help='Вывести JSON в stdout вместо читаемого результата и файла отчёта')
     recover=command('recover',description='Восстановиться после прерванной операции')
-    recover.add_argument('--yes',action='store_true');recover.add_argument('--json',action='store_true')
+    recover.add_argument('--yes',action='store_true');recover.add_argument('--json',action='store_true',help='Вывести JSON в stdout вместо читаемого результата и файла отчёта')
     auto=command('auto-update','Управлять проверкой и установкой stable-релиза после загрузки ОС')
     auto.add_argument('action',choices=['enable','disable','status','run'],
         help='enable — включить; disable — отключить; status — показать состояние; run — проверить stable-релиз и применить обновление')
-    auto.add_argument('--json',action='store_true')
+    auto.add_argument('--json',action='store_true',help='Вывести JSON в stdout вместо читаемого результата и файла отчёта')
     return parser
 
 def confirmation(args,message):
     if getattr(args,'yes',False) or getattr(args,'dry_run',False): return
     if not sys.stdin.isatty(): raise ManagerError('Требуется подтверждение: '+message+'. Для автоматизации укажите --yes',64)
     while True:
-        try:answer=input(message+' Продолжить? [y/N]: ').strip().casefold()
+        try:answer=ask(message+' Продолжить? [y/N]: ').strip().casefold()
         except EOFError:raise ManagerError('Операция отменена',64) from None
         if answer in ('y','yes','да','д'):return
         if answer in ('','n','no','нет','н'):raise ManagerError('Операция отменена',64)
         print('Введите yes или no',file=sys.stderr)
 
 def menu(manager):
-    print(json.dumps(manager.status(),ensure_ascii=False,indent=2))
+    print('Состояние сервисов:\n'+format_human(manager.status(),2))
     choices={'1':['status'],'2':['start'],'3':['stop'],'4':['restart'],'5':['settings'],'6':['client','list'],
       '7':['backup'],'8':['diagnose'],'9':['logs'],'10':['update'],'11':['restore'],'12':['reset-password'],'13':['uninstall'],'14':['reinstall'],'15':['purge']}
     print('1 Состояние; 2 Запуск; 3 Остановка; 4 Перезапуск; 5 Настройки; 6 Клиенты;\n7 Backup; 8 Диагностика; 9 Журналы; 10 Update; 11 Restore; 12 Пароль; 13 Удаление; 14 Чистая переустановка; 15 Полное удаление, включая backup; 0 Выход')
-    choice=input('Действие: ').strip()
+    choice=ask('Действие: ').strip()
     if choice=='0': return None
     if choice not in choices: raise ManagerError('Неизвестный пункт меню',64)
     command=choices[choice]
     if command[0]=='purge':return command
-    if command[0]=='restore': return command+['--file',input('Путь к архиву: ').strip(),'--component',input('Компонент awg/wg/all: ').strip()]
-    if command[0]=='reset-password': return command+['--component',input('Компонент awg/wg: ').strip()]
+    if command[0]=='restore': return command+['--file',ask('Путь к архиву: ').strip(),'--component',ask('Компонент awg/wg/all: ').strip()]
+    if command[0]=='reset-password': return command+['--component',ask('Компонент awg/wg: ').strip()]
     if command[0]=='update': return command
     if command[0]=='client':
-        action=input('list/add/disable/enable/remove/export: ').strip() or 'list'
-        target=input('Компонент awg/wg'+('/all' if action=='list' else '')+': ').strip()
+        action=ask('list/add/disable/enable/remove/export: ').strip() or 'list'
+        target=ask('Компонент awg/wg'+('/all' if action=='list' else '')+': ').strip()
         command=['client',action,'--component',target]
-        if action!='list': command+=['--name',input('Имя клиента: ').strip()]
-        if action=='add': command+=['--group',input('Группа home/guest: ').strip()]
-        if action=='export': command+=['--format',input('Формат conf/qr/vpn-url: ').strip(),'--output',input('Файл профиля: ').strip()]
+        if action!='list': command+=['--name',ask('Имя клиента: ').strip()]
+        if action=='add': command+=['--group',ask('Группа home/guest: ').strip()]
+        if action=='export': command+=['--format',ask('Формат conf/qr/vpn-url: ').strip(),'--output',ask('Файл профиля: ').strip()]
         return command
-    return command+[input('Компонент all/awg/wg: ').strip() or 'all']
+    return command+[ask('Компонент all/awg/wg: ').strip() or 'all']
 
 def parse_arguments(project,argv):
     values=list(sys.argv[1:] if argv is None else argv)
@@ -1134,10 +1167,10 @@ def main(project,argv=None):
             confirmation(args,'Операция может остановить выбранные VPN или заменить данные')
         if args.command=='install' and manager.config(False) and set(manager.config()['components'])=={'awg','wg'}:
             if not sys.stdin.isatty():raise ManagerError('Установка уже существует. Используйте vpnctl status, uninstall или reinstall; для удаления данных требуется --yes',64)
-            print('Установка уже существует:\n1 Сохранить и выйти (по умолчанию)\n2 Удалить\n3 Чистая переустановка')
-            try:choice=input('Действие [1]: ').strip() or '1'
+            print('Установка уже существует:\n1 Сохранить и выйти (по умолчанию)\n2 Удалить\n3 Чистая переустановка',file=sys.stderr)
+            try:choice=ask('Действие [1]: ').strip() or '1'
             except EOFError:choice='1'
-            if choice=='1':return 0
+            if choice=='1':return emit_result(manager,args,{'installed':True,'unchanged':True,'components':list(manager.config()['components'])})
             if choice not in ('2','3'):raise ManagerError('Неизвестный пункт меню; установка не изменена',64)
             args.command='uninstall' if choice=='2' else 'reinstall';args.component='all'
             confirmation(args,'Будут удалены рабочие клиенты, ключи, пароль и настройки; внутренние backup сохраняются')
@@ -1202,17 +1235,11 @@ def main(project,argv=None):
         if result is None: return 0
         if isinstance(result,dict) and 'export_value' in result: sys.stdout.write(result['export_value']);return 0
         if args.command=='reset-password': print('Новый пароль (показан один раз): '+result['password']);return 0
-        if getattr(args,'json',False):
-            if manager.bootstrap_results: result['bootstrap']=manager.bootstrap_results
-            print(json.dumps(result,ensure_ascii=False,indent=2))
-        else:
-            print(json.dumps(result,ensure_ascii=False,indent=2))
-            for name,initial in manager.bootstrap_results.items():
-                print('\n'+name.upper()+': панель после подключения VPN '+initial['panel_url'])
-                print('Пароль панели (показан один раз): '+initial['password'])
-                print('Профиль .conf: '+initial['profile_file'])
-                if initial.get('vpn_url'): print('Первый профиль AmneziaVPN (показан один раз):\n'+initial['vpn_url'])
-        return 0
+        try:return emit_result(manager,args,result)
+        except (ManagerError,OSError) as error:
+            print('Команда выполнена, но JSON-результат не сохранён: '+str(error),file=sys.stderr)
+            return getattr(error,'code',74)
+
     except (ManagerError,PreflightError) as error:
         if not readonly and not dry and args.command!='purge':
             try: manager.log_result(args.command,{'status':'failed','code':getattr(error,'code',73),'recovery_required':manager.journal.exists()})

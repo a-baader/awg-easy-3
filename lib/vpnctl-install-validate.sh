@@ -33,6 +33,7 @@ for argument in "$@"; do
   recover         Восстановиться после прерванной операции
   auto-update     Управлять обновлением stable: enable, disable, status, run
 Компоненты: all — оба сервиса, awg — AmneziaWG, wg — WireGuard.
+По умолчанию — читаемый вывод и JSON-файл в /root; --json — JSON в stdout.
 После установки Python подробная справка: vpnctl КОМАНДА --help.
 HELP
     printf 'Доступны --uninstall и --reinstall. Удаление данных требует подтверждения, в автоматизации --yes.\n'
