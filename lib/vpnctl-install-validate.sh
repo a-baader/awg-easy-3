@@ -26,6 +26,7 @@ for argument in "$@"; do
   update          Обновить образы по --manifest с резервной копией и откатом при сбое
   backup          Создать резервную копию
   uninstall       Удалить сервисы и рабочие данные, сохранив внутренние backup
+  purge           Удалить все сервисы, данные и внутренние backup; сохранить исходники
   restore         Восстановить проверенный архив
   reset-password  Сбросить пароль и отозвать сессии
   client          Управлять клиентами: list, add, disable, enable, remove, export

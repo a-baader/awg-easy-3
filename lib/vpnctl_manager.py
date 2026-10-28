@@ -887,7 +887,14 @@ class Manager:
                 if path.is_file() and not path.is_symlink() and hashlib.sha256(path.read_bytes()).hexdigest()==digest:path.unlink()
             self.path.unlink(missing_ok=True);self.compose_path.unlink(missing_ok=True)
             if (self.root/'bootstrap').exists():shutil.rmtree(self.root/'bootstrap')
+        if journal.get('purge'):
+            import vpnctl_purge
+            return vpnctl_purge.finish(self,journal)
         self.journal.unlink(missing_ok=True)
+
+    def purge(self,args):
+        import vpnctl_purge
+        return vpnctl_purge.purge(self,args)
 
     def uninstall(self,args):
         config=self.config(False)
@@ -896,6 +903,7 @@ class Manager:
         if args.dry_run: return {'dry_run':True,'remove':selected}
         candidate=copy.deepcopy(config)
         journal={'operation':'uninstall','phase':'prepared','previous':config,'candidate':candidate,'selected':selected}
+        if getattr(args,'purge',False):journal.update(purge=True,purge_images=args.purge_images)
         try:
             self.freeze(journal)
             snapshot=self.backup_selected(config,selected)['file']
@@ -910,10 +918,12 @@ class Manager:
             journal['candidate']=candidate
             committed={**journal,'phase':'committed'};journal['phase']='commit_uncertain'
             self.save_journal(committed);journal.update(committed)
-            self.finish_uninstall(journal)
+            result=self.finish_uninstall(journal)
+            if journal.get('purge'):return result
             command=self.system_root/'usr/local/sbin/vpnctl'
             return {'removed':selected,'snapshot':snapshot,'forwarding_values_preserved':True,'backups_preserved':True,'vpnctl_removed':not command.exists() and not command.is_symlink()}
         except BaseException:
+            if journal.get('purge') and journal.get('phase')=='committed':raise
             self.rollback(journal);raise
 
     def check_plan(self,candidate,previous=None):
@@ -995,6 +1005,10 @@ def build_parser():
             item.add_argument('--internet-url',default='https://example.com/')
             item.add_argument('--dns',action='store_true',help='Проверить DNS из профиля через VPN')
 
+    purge=command('purge','Удалить все сервисы, рабочие данные, внутренние backup и установленный vpnctl; сохранить исходники')
+    purge.add_argument('--yes',action='store_true',help='Явно подтвердить полное удаление')
+    purge.add_argument('--dry-run',action='store_true',help='Показать план без удаления')
+    purge.add_argument('--json',action='store_true')
     restore=command('restore',description='Восстановить проверенный архив')
     restore.add_argument('--file',required=True);restore.add_argument('--component',choices=['all','awg','wg'],required=True)
     restore.add_argument('--yes',action='store_true');restore.add_argument('--dry-run',action='store_true');restore.add_argument('--json',action='store_true')
@@ -1039,12 +1053,13 @@ def confirmation(args,message):
 def menu(manager):
     print(json.dumps(manager.status(),ensure_ascii=False,indent=2))
     choices={'1':['status'],'2':['start'],'3':['stop'],'4':['restart'],'5':['settings'],'6':['client','list'],
-      '7':['backup'],'8':['diagnose'],'9':['logs'],'10':['update'],'11':['restore'],'12':['reset-password'],'13':['uninstall'],'14':['reinstall']}
-    print('1 Состояние; 2 Запуск; 3 Остановка; 4 Перезапуск; 5 Настройки; 6 Клиенты;\n7 Backup; 8 Диагностика; 9 Журналы; 10 Update; 11 Restore; 12 Пароль; 13 Удаление; 14 Чистая переустановка; 0 Выход')
+      '7':['backup'],'8':['diagnose'],'9':['logs'],'10':['update'],'11':['restore'],'12':['reset-password'],'13':['uninstall'],'14':['reinstall'],'15':['purge']}
+    print('1 Состояние; 2 Запуск; 3 Остановка; 4 Перезапуск; 5 Настройки; 6 Клиенты;\n7 Backup; 8 Диагностика; 9 Журналы; 10 Update; 11 Restore; 12 Пароль; 13 Удаление; 14 Чистая переустановка; 15 Полное удаление, включая backup; 0 Выход')
     choice=input('Действие: ').strip()
     if choice=='0': return None
     if choice not in choices: raise ManagerError('Неизвестный пункт меню',64)
     command=choices[choice]
+    if command[0]=='purge':return command
     if command[0]=='restore': return command+['--file',input('Путь к архиву: ').strip(),'--component',input('Компонент awg/wg/all: ').strip()]
     if command[0]=='reset-password': return command+['--component',input('Компонент awg/wg: ').strip()]
     if command[0]=='update': return command+[input('Компонент all/awg/wg: ').strip() or 'all','--manifest',input('Манифест релиза: ').strip()]
@@ -1101,7 +1116,9 @@ def main(project,argv=None):
     try:
         if manager.journal.exists() and not readonly and args.command not in ('recover','stop'):
             raise ManagerError('Обнаружена прерванная операция; выполните vpnctl recover',75)
-        if args.command in ('uninstall','reinstall'):
+        if args.command=='purge':
+            confirmation(args,'Будут удалены ВСЕ сервисы приложения, клиенты, ключи, пароли, настройки, внутренние backup и установленный vpnctl. Восстановление из внутренних backup станет невозможно. Исходники, Docker, чужие ресурсы и текущий forwarding сохраняются')
+        elif args.command in ('uninstall','reinstall'):
             confirmation(args,'Будут удалены рабочие клиенты, ключи, пароль, настройки и bootstrap-профили выбранных VPN. Внутренние backup со старыми ключами сохраняются. Docker, чужие ресурсы и текущий forwarding сохраняются. После удаления последнего VPN установленная команда vpnctl удаляется')
         elif args.command in ('backup','restore','update','recover') or args.command=='client' and args.action=='remove':
             confirmation(args,'Операция может остановить выбранные VPN или заменить данные')
@@ -1140,10 +1157,12 @@ def main(project,argv=None):
             if args.command=='backup': return manager.backup(args.component,args.output)
             if args.command=='restore': return manager.restore(args)
             if args.command=='update': return manager.update(args)
+            if args.command=='purge':return manager.purge(args)
             if args.command=='uninstall': return manager.uninstall(args)
             if args.command=='recover':
                 if not manager.journal.exists(): return {'recovery_required':False}
-                journal=json.loads(manager.journal.read_text());manager.rollback(journal);return {'recovered':True}
+                journal=json.loads(manager.journal.read_text());manager.rollback(journal)
+                return {'recovered':True,'purged':bool(journal.get('purge') and journal.get('phase')=='committed')}
             config=manager.config()
             selected=manager.selected(config,args.component)
             if args.command=='settings': return {name:manager.rpc(config['components'][name],'settings') for name in selected}
@@ -1167,7 +1186,7 @@ def main(project,argv=None):
         if readonly or dry: result=perform()
         else:
             with global_lock(recovery_journal=manager.journal if args.command=='recover' else None): result=perform()
-        if not readonly and not dry:
+        if not readonly and not dry and not (isinstance(result,dict) and result.get('purged')):
             try: manager.log_result(args.command,'ok')
             except OSError: print('Предупреждение: операция завершена, но журнал записать не удалось',file=sys.stderr)
         if result is None: return 0
@@ -1185,7 +1204,7 @@ def main(project,argv=None):
                 if initial.get('vpn_url'): print('Первый профиль AmneziaVPN (показан один раз):\n'+initial['vpn_url'])
         return 0
     except (ManagerError,PreflightError) as error:
-        if not readonly and not dry:
+        if not readonly and not dry and args.command!='purge':
             try: manager.log_result(args.command,{'status':'failed','code':getattr(error,'code',73),'recovery_required':manager.journal.exists()})
             except OSError: pass
         print('Ошибка: '+str(error),file=sys.stderr);return getattr(error,'code',73)
