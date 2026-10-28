@@ -2,6 +2,7 @@
 from contextlib import contextmanager
 import copy
 import json
+import re
 from pathlib import Path
 import runpy
 import shutil
@@ -63,6 +64,16 @@ def new_manager(namespace,project,manager):
     return namespace['Manager'](project,manager.path,system_root=manager.system_root)
 
 
+def current_source_commit(manager,config):
+    if config.get('source_commit'):return config['source_commit']
+    # Первая установка из чистого стабильного Git-тега уже использует точные
+    # исходники релиза и не должна повторно перезапускать те же контейнеры.
+    revision=manager.run(['git','-C',str(manager.project),'rev-parse','HEAD'],check=False)
+    if not revision or not re.fullmatch(r'[a-f0-9]{40}',revision.strip()):return None
+    dirty=manager.run(['git','-C',str(manager.project),'status','--porcelain','--untracked-files=all'],check=False)
+    return revision.strip() if dirty is not None and not dirty.strip() else None
+
+
 def update(manager,args):
     config=manager.config();selected=manager.selected(config,args.component)
     manager.owned(config);manager.check_system_paths(config)
@@ -76,7 +87,7 @@ def update(manager,args):
         return {'updated':False,'reason':'стабильный релиз старше установленной версии; понижение не выполняется','version':version}
     changed=[name for name in selected if config['components'][name].get('version',config['version'])!=version
              or config['components'][name].get('image_ref')!=release['images'][name]]
-    source_changed=config.get('source_commit')!=release['source_commit']
+    source_changed=current_source_commit(manager,config)!=release['source_commit']
     if not changed and not source_changed:return {'updated':False,'reason':'установлен актуальный стабильный релиз','version':version}
     if args.dry_run:
         return {'dry_run':True,'version':version,'source_commit':release['source_commit'],

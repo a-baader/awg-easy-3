@@ -49,6 +49,13 @@ class SourceUpdate(unittest.TestCase):
         self.manager.write_config(config)
         with mock.patch.object(updater,'stage_source') as stage:self.assertFalse(self.update()['updated'])
         stage.assert_not_called()
+    def test_fresh_clean_release_checkout_does_not_restart_current_images(self):
+        config=self.manager.config()
+        for name,item in config['components'].items():item.update(version='0.2.0',image_ref=self.release['images'][name])
+        self.manager.write_config(config)
+        self.manager.run=lambda args,**kwargs:self.release['source_commit'] if args[-1]=='HEAD' else ''
+        with mock.patch.object(updater,'stage_source') as stage:self.assertFalse(self.update()['updated'])
+        stage.assert_not_called();self.assertFalse(self.manager.journal.exists())
     def test_no_downgrade_of_newer_component(self):
         config=self.manager.config();config['components']['wg']['version']='0.3.0';self.manager.write_config(config)
         self.assertFalse(self.update()['updated']);self.assertFalse(self.manager.journal.exists())
