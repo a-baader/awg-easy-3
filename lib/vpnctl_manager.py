@@ -22,13 +22,14 @@ from dual_preflight import PreflightError, environment_check, inspect_conflicts,
 from vpnctl_common import ManagerError, atomic_json, atomic_write, execute, global_lock, redact, durable_replace
 from vpnctl_backup import create_archive, verify_archive, extract_component
 import vpnctl_boot
+from vpnctl_terminal import paint,message as terminal_message,help_text
 from vpnctl_progress import installation_progress
 from vpnctl_output import emit_result,format_human
 
 UPDATE_API_VERSION=1
 
 def ask(message):
-    print(message,end='',file=sys.stderr,flush=True)
+    print(paint(message,'prompt',sys.stderr),end='',file=sys.stderr,flush=True)
     return input()
 
 class Parser(argparse.ArgumentParser):
@@ -39,8 +40,12 @@ class Parser(argparse.ArgumentParser):
         self._positionals.title='Команды';self._optionals.title='Параметры'
     def format_usage(self): return super().format_usage().replace('usage:','Использование:',1)
     def format_help(self): return super().format_help().replace('usage:','Использование:',1)
+    def _print_message(self, text, file=None):
+        if text:
+            stream=sys.stderr if file is None else file
+            stream.write(help_text(text,stream))
     def error(self, message):
-        print('Ошибка параметров. Используйте vpnctl help.\n' + self.format_usage(), file=sys.stderr)
+        terminal_message('Ошибка параметров. Используйте vpnctl help.\n' + self.format_usage(), file=sys.stderr)
         raise SystemExit(64)
 
 class Manager:
@@ -489,7 +494,7 @@ class Manager:
             except EOFError:raise ManagerError('Выбор порта отменён',64) from None
             value=int(answer) if answer.isdecimal() else suggestion if not answer else 0
             if 1<=value<=65535 and not self.port_used(protocol,value):return value
-            print('Ошибка: укажите свободный порт от 1 до 65535',file=sys.stderr)
+            terminal_message('Ошибка: укажите свободный порт от 1 до 65535',file=sys.stderr)
 
     def validate_state_image(self,item,directory=None):
         source=directory or item['data_directory']
@@ -533,10 +538,10 @@ class Manager:
         self.install_stage('Настройка проверки обновлений после загрузки ОС')
         try:
             result=vpnctl_boot.configure(self,self.config().get('auto_check',False))
-            if result['backend']=='unsupported':print('Предупреждение: systemd/OpenRC недоступен; автоматическая проверка после загрузки не включена',file=sys.stderr)
+            if result['backend']=='unsupported':terminal_message('Предупреждение: systemd/OpenRC недоступен; автоматическая проверка после загрузки не включена',file=sys.stderr)
             return result
         except (ManagerError,OSError):
-            print('Предупреждение: VPN установлен, но boot updater не настроен; выполните vpnctl auto-update enable',file=sys.stderr)
+            terminal_message('Предупреждение: VPN установлен, но boot updater не настроен; выполните vpnctl auto-update enable',file=sys.stderr)
             return {'enabled':False,'configuration_required':True}
 
     def register(self,config):
@@ -921,7 +926,7 @@ class Manager:
             try:vpnctl_boot.configure(self,False,previous)
             except ManagerError as error:
                 if error.code!=73:raise
-                print('Предупреждение: boot updater изменён другим приложением; его служба не изменена',file=sys.stderr)
+                terminal_message('Предупреждение: boot updater изменён другим приложением; его служба не изменена',file=sys.stderr)
             # Конфигурация не даёт права удалить произвольный путь с совпавшим hash.
             allowed={str(path) for path in {**self.system_files(),**vpnctl_boot.files(self.system_root,'systemd'),**vpnctl_boot.files(self.system_root,'openrc')}}
             for filename,digest in previous.get('manager_files',{}).items():
@@ -994,7 +999,7 @@ def valid_port(value):
 
 def build_parser():
     parser=Parser(prog='vpnctl',description='Единое управление AWG и стандартным WireGuard',
-        epilog='По умолчанию — читаемый вывод и JSON-файл в /root; --json — JSON в stdout. Подробнее о параметрах: vpnctl КОМАНДА --help. Компонент all означает оба сервиса, awg — AmneziaWG, wg — WireGuard.')
+        epilog='По умолчанию — читаемый вывод и JSON-файл в /root; --json — JSON в stdout. Цвета включаются в терминале; NO_COLOR отключает цвета. Подробнее о параметрах: vpnctl КОМАНДА --help. Компонент all означает оба сервиса, awg — AmneziaWG, wg — WireGuard.')
     parser.add_argument('--config',default='/etc/vpn-easy-dual/config.json',help='Путь к конфигурации manager')
     sub=parser.add_subparsers(dest='command')
     def command(name,description,**kwargs):
@@ -1091,10 +1096,10 @@ def confirmation(args,message):
         except EOFError:raise ManagerError('Операция отменена',64) from None
         if answer in ('y','yes','да','д'):return
         if answer in ('','n','no','нет','н'):raise ManagerError('Операция отменена',64)
-        print('Введите yes или no',file=sys.stderr)
+        terminal_message('Введите yes или no',file=sys.stderr)
 
 def menu(manager):
-    print('Состояние сервисов:\n'+format_human(manager.status(),2))
+    print(paint('Состояние сервисов:','heading')+'\n'+format_human(manager.status(),2))
     choices={'1':['status'],'2':['start'],'3':['stop'],'4':['restart'],'5':['settings'],'6':['client','list'],
       '7':['backup'],'8':['diagnose'],'9':['logs'],'10':['update'],'11':['restore'],'12':['reset-password'],'13':['uninstall'],'14':['reinstall'],'15':['purge']}
     print('1 Состояние; 2 Запуск; 3 Остановка; 4 Перезапуск; 5 Настройки; 6 Клиенты;\n7 Backup; 8 Диагностика; 9 Журналы; 10 Update; 11 Restore; 12 Пароль; 13 Удаление; 14 Чистая переустановка; 15 Полное удаление, включая backup; 0 Выход')
@@ -1144,15 +1149,15 @@ def parse_arguments(project,argv):
 def main(project,argv=None):
     try:parser,args,validate_only=parse_arguments(project,argv)
     except (OSError,ValueError,KeyError):
-        print('Ошибка: не удалось прочитать версию исходников vpnctl',file=sys.stderr);return 65
+        terminal_message('Ошибка: не удалось прочитать версию исходников vpnctl',file=sys.stderr);return 65
     if validate_only:return 0
     if args.command=='help': parser.print_help();return 0
-    if os.geteuid()!=0: print('Ошибка: запустите vpnctl через sudo',file=sys.stderr);return 69
+    if os.geteuid()!=0: terminal_message('Ошибка: запустите vpnctl через sudo',file=sys.stderr);return 69
     manager=Manager(project,args.config)
     if not args.command:
         if not sys.stdin.isatty(): parser.print_help();return 64
         try: chosen=menu(manager)
-        except ManagerError as error: print('Ошибка: '+str(error),file=sys.stderr);return error.code
+        except ManagerError as error: terminal_message('Ошибка: '+str(error),file=sys.stderr);return error.code
         return main(project,['--config',args.config,*chosen]) if chosen else 0
     readonly=args.command in ('status','settings','logs','diagnose') or args.command=='client' and args.action in ('list','export') or args.command=='auto-update' and args.action=='status'
     dry=getattr(args,'dry_run',False)
@@ -1167,7 +1172,7 @@ def main(project,argv=None):
             confirmation(args,'Операция может остановить выбранные VPN или заменить данные')
         if args.command=='install' and manager.config(False) and set(manager.config()['components'])=={'awg','wg'}:
             if not sys.stdin.isatty():raise ManagerError('Установка уже существует. Используйте vpnctl status, uninstall или reinstall; для удаления данных требуется --yes',64)
-            print('Установка уже существует:\n1 Сохранить и выйти (по умолчанию)\n2 Удалить\n3 Чистая переустановка',file=sys.stderr)
+            terminal_message('Установка уже существует:\n1 Сохранить и выйти (по умолчанию)\n2 Удалить\n3 Чистая переустановка',file=sys.stderr)
             try:choice=ask('Действие [1]: ').strip() or '1'
             except EOFError:choice='1'
             if choice=='1':return emit_result(manager,args,{'installed':True,'unchanged':True,'components':list(manager.config()['components'])})
@@ -1231,24 +1236,24 @@ def main(project,argv=None):
             with global_lock(recovery_journal=manager.journal if args.command=='recover' else None): result=perform()
         if not readonly and not dry and not (isinstance(result,dict) and result.get('purged')):
             try: manager.log_result(args.command,'ok')
-            except OSError: print('Предупреждение: операция завершена, но журнал записать не удалось',file=sys.stderr)
+            except OSError: terminal_message('Предупреждение: операция завершена, но журнал записать не удалось',file=sys.stderr)
         if result is None: return 0
         if isinstance(result,dict) and 'export_value' in result: sys.stdout.write(result['export_value']);return 0
-        if args.command=='reset-password': print('Новый пароль (показан один раз): '+result['password']);return 0
+        if args.command=='reset-password': print(paint('Новый пароль (показан один раз): ','label')+result['password']);return 0
         try:return emit_result(manager,args,result)
         except (ManagerError,OSError) as error:
-            print('Команда выполнена, но JSON-результат не сохранён: '+str(error),file=sys.stderr)
+            terminal_message('Команда выполнена, но JSON-результат не сохранён: '+str(error),file=sys.stderr)
             return getattr(error,'code',74)
 
     except (ManagerError,PreflightError) as error:
         if not readonly and not dry and args.command!='purge':
             try: manager.log_result(args.command,{'status':'failed','code':getattr(error,'code',73),'recovery_required':manager.journal.exists()})
             except OSError: pass
-        print('Ошибка: '+str(error),file=sys.stderr);return getattr(error,'code',73)
+        terminal_message('Ошибка: '+str(error),file=sys.stderr);return getattr(error,'code',73)
     except KeyboardInterrupt:
-        print('Операция прервана; при наличии transaction.json выполните vpnctl recover',file=sys.stderr);return 130
+        terminal_message('Операция прервана; при наличии transaction.json выполните vpnctl recover',file=sys.stderr);return 130
     except (OSError,ValueError,KeyError,TypeError):
-        print('Ошибка: операция не завершена; проверьте vpnctl status и журнал транзакции',file=sys.stderr);return 74
+        terminal_message('Ошибка: операция не завершена; проверьте vpnctl status и журнал транзакции',file=sys.stderr);return 74
 
 if __name__=='__main__':
     def interrupted(_number,_frame):raise KeyboardInterrupt()

@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 import re
 
+from vpnctl_terminal import paint
 from vpnctl_common import ManagerError,atomic_json
 
 LABELS={
@@ -37,15 +38,15 @@ COMMANDS={'install':'Установка','reinstall':'Переустановка
 def format_human(value,indent=0):
     prefix=' '*indent
     def scalar(item):
-        if item is True:return 'да'
-        if item is False:return 'нет'
+        if item is True:return paint('да','success')
+        if item is False:return paint('нет','warning')
         if item is None:return 'не указано'
-        return str(item)
+        return paint(str(item),'success') if item in ('healthy','running','ok') else paint(str(item),'error') if item in ('unhealthy','error','failed') else str(item)
     if isinstance(value,dict):
         if not value:return prefix+'нет данных'
         lines=[]
         for key,item in value.items():
-            label=LABELS.get(str(key),str(key))
+            label=paint(LABELS.get(str(key),str(key)),'label')
             if isinstance(item,(dict,list)):
                 lines.append(prefix+label+':');lines.append(format_human(item,indent+2))
             elif isinstance(item,str) and '\n' in item:
@@ -112,21 +113,21 @@ def write_result(report,path):
 
 def print_bootstrap(manager):
     for name,initial in manager.bootstrap_results.items():
-        print('\n'+name.upper()+': панель после подключения VPN '+initial['panel_url'])
-        print('Пароль панели (показан один раз): '+initial['password'])
-        print('Профиль .conf: '+initial['profile_file'])
-        if initial.get('vpn_url'):print('Первый профиль AmneziaVPN (показан один раз):\n'+initial['vpn_url'])
+        print('\n'+paint(name.upper()+': панель после подключения VPN ','heading')+initial['panel_url'])
+        print(paint('Пароль панели (показан один раз): ','label')+initial['password'])
+        print(paint('Профиль .conf: ','label')+initial['profile_file'])
+        if initial.get('vpn_url'):print(paint('Первый профиль AmneziaVPN (показан один раз):','label')+'\n'+initial['vpn_url'])
 
 
 def emit_result(manager,args,result):
     if getattr(args,'json',False):
         if manager.bootstrap_results:result={**result,'bootstrap':manager.bootstrap_results}
         print(json.dumps(result,ensure_ascii=False,indent=2));return 0
-    print(COMMANDS.get(args.command,args.command)+':')
+    print(paint(COMMANDS.get(args.command,args.command)+':','heading'))
     print(format_human(result,2))
     # Секреты показываются до записи отчёта: ошибка диска не должна скрыть
     # однократный пароль уже успешно созданной панели.
     print_bootstrap(manager)
     path=write_result(public_result(manager,args,result),result_path(manager,args))
-    print('\nJSON-результат сохранён: '+str(path))
+    print('\n'+paint('JSON-результат сохранён: ','success')+str(path))
     return 0

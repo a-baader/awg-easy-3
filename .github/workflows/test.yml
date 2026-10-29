@@ -41,6 +41,7 @@ jobs:
           python3 ../scripts/test-vpnctl-source-update.py
           python3 ../scripts/test-vpnctl-progress.py
           python3 ../scripts/test-vpnctl-output.py
+          python3 ../scripts/test-vpnctl-color.py
           python3 ../scripts/test-dual-preflight.py
           python3 -m py_compile ../lib/vpnctl_manager.py ../lib/vpnctl_backup.py ../lib/vpnctl_common.py
 

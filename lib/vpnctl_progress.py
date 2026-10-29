@@ -3,6 +3,7 @@ from functools import wraps
 import sys
 import threading
 import time
+from vpnctl_terminal import message as terminal_message
 
 
 class InstallationProgress:
@@ -12,12 +13,12 @@ class InstallationProgress:
     def stage(self,message):
         with self.lock:
             self.message=message;self.started=time.monotonic()
-            print('[Установка] '+message,file=sys.stderr,flush=True)
+            terminal_message('[Установка] '+message,'error' if message.startswith('Установка не завершена') else 'success' if message=='Установка завершена' else 'label',file=sys.stderr,flush=True)
     def heartbeat(self):
         with self.lock:
             if self.message:
                 elapsed=int(time.monotonic()-self.started)
-                print('[Установка] '+self.message+' — выполняется, прошло '+str(elapsed)+' с',file=sys.stderr,flush=True)
+                terminal_message('[Установка] '+self.message+' — выполняется, прошло '+str(elapsed)+' с','label',file=sys.stderr,flush=True)
     def start(self):
         def repeat():
             while not self.stopped.wait(self.interval):self.heartbeat()
