@@ -55,9 +55,9 @@ if { [ "$action" = install ] || [ "$action" = reinstall ]; } && [ ! -r "$config"
     mkdir "$bootstrap_lock" 2>/dev/null || { terminal_message 'Ошибка: другая операция установки или обновления уже выполняется'; exit 73; }
     printf '%s\n' "$$" > "$bootstrap_lock/pid"
     trap 'if [ -r "$bootstrap_lock/pid" ] && [ "$(cat "$bootstrap_lock/pid")" = "$$" ]; then rm -f "$bootstrap_lock/pid"; rmdir "$bootstrap_lock" 2>/dev/null || true; fi' 0
-    terminal_message '[Установка] Проверка и подготовка системных зависимостей'
+    terminal_message '[Установка] Проверка и подготовка системных зависимостей [...###..............]'
     sh "$base/lib/dual-dependencies.sh" "$provision" >&2
-    terminal_message '[Установка] Системные зависимости готовы'
+    terminal_message '[Установка] Системные зависимости готовы [####################]'
     VPNCTL_BOOTSTRAP_LOCK=$$
     export VPNCTL_BOOTSTRAP_LOCK
   fi

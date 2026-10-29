@@ -23,7 +23,7 @@ from vpnctl_common import ManagerError, atomic_json, atomic_write, execute, glob
 from vpnctl_backup import create_archive, verify_archive, extract_component
 import vpnctl_boot
 from vpnctl_terminal import paint,message as terminal_message,help_text
-from vpnctl_progress import installation_progress,removal_progress
+from vpnctl_progress import installation_progress,removal_progress,command_progress
 from vpnctl_output import emit_result,format_human
 
 UPDATE_API_VERSION=1
@@ -58,7 +58,7 @@ class Manager:
         self.system_root=Path(system_root)
 
     def install_stage(self,message):
-        progress=getattr(self,'_installation_progress',None)
+        progress=getattr(self,'_installation_progress',None) or getattr(self,'_command_progress',None)
         if progress:progress.stage(message)
 
     def removal_stage(self,message):
@@ -201,6 +201,7 @@ class Manager:
     def lifecycle(self,operation,component):
         config=self.config(); selected=self.selected(config,component); self.owned(config)
         for name in selected:
+            self.install_stage('Обработка сервиса '+name.upper()+': '+operation)
             service=name+'-easy'
             if operation=='start': self.compose('up','-d','--no-deps',service); self.health(config['components'][name])
             elif operation=='stop': self.compose('stop',service)
@@ -695,6 +696,7 @@ class Manager:
         except BaseException:self.rollback(journal);raise
 
     def restore(self,args):
+        self.install_stage('Проверка резервной копии для восстановления')
         manifest=verify_archive(args.file)
         previous=self.config(False)
         if previous: self.owned(previous)
@@ -1245,9 +1247,10 @@ def main(project,argv=None):
                     return {'export_value':value}
                 return result
             raise ManagerError('Неизвестная команда',64)
-        if readonly or dry: result=perform()
-        else:
-            with global_lock(recovery_journal=manager.journal if args.command=='recover' else None): result=perform()
+        with command_progress(args,manager):
+            if readonly or dry: result=perform()
+            else:
+                with global_lock(recovery_journal=manager.journal if args.command=='recover' else None): result=perform()
         if not readonly and not dry and not (isinstance(result,dict) and result.get('purged')):
             try: manager.log_result(args.command,'ok')
             except OSError: terminal_message('Предупреждение: операция завершена, но журнал записать не удалось',file=sys.stderr)

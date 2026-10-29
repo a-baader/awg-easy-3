@@ -40,6 +40,7 @@ jobs:
           python3 ../scripts/test-vpnctl-purge.py
           python3 ../scripts/test-vpnctl-source-update.py
           python3 ../scripts/test-vpnctl-progress.py
+          python3 ../scripts/test-vpnctl-ascii-progress.py
           python3 ../scripts/test-vpnctl-removal-progress.py
           python3 ../scripts/test-vpnctl-output.py
           python3 ../scripts/test-vpnctl-color.py
