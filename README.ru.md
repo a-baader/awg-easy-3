@@ -6,7 +6,7 @@
 
 Небольшая Docker-панель для AmneziaWG и стандартного WireGuard: два самостоятельных VPN-сервиса и единая команда `vpnctl`. Независимый некоммерческий форк [AWG-Easy 3](https://github.com/alexsemenovru/awg-easy-3).
 
-> Текущий выпуск: **0.2.0**. При обновлении сохраняются клиенты, ключи и пароли. См. [описание выпуска](docs/releases/v0.2.0.md).
+> Текущий выпуск: **0.2.1**. При обновлении сохраняются клиенты, ключи и пароли. См. [описание выпуска](docs/releases/v0.2.1.md).
 
 ## Кратко о возможностях
 
@@ -19,7 +19,7 @@
 Требования: Linux VPS с архитектурой amd64/x86_64, доступ root, Git, `/dev/net/tun` и свободные входящие UDP-порты. WSL, macOS и BSD не поддерживаются. При необходимости установщик подготовит Docker Engine, Docker Compose v2, iproute2, nftables и Python 3 через поддерживаемый менеджер пакетов.
 
 ```bash
-git clone --branch v0.2.0 https://github.com/a-baader/wg-dual-easy.git
+git clone https://github.com/a-baader/wg-dual-easy.git
 cd wg-dual-easy
 sudo ./vpnctl install --host PUBLIC_IP_OR_DOMAIN --lang ru
 ```

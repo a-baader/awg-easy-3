@@ -180,8 +180,7 @@ table inet ${tableName} {
   set guest4 {
     type ipv4_addr${elementsClause(normalizedGuest4)}
   }
-${ipv6Sets}${geo.sets}
-${isolation ? `
+${ipv6Sets}${geo.sets}${isolation ? `
   chain discovery_prerouting {
     type nat hook prerouting priority dstnat; policy accept;
     iifname ${quote(awg)} ip saddr @home4 ip daddr 224.0.0.251 udp dport 5353 dnat ip to ${serverAddress4} comment "own VPN mDNS"

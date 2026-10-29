@@ -15,7 +15,7 @@ x-runtime: &runtime
 services:
   awg-easy:
     <<: *runtime
-    image: ${AWG_IMAGE:-ghcr.io/a-baader/wg-dual-easy-awg:0.2.0}
+    image: ${AWG_IMAGE:-ghcr.io/a-baader/wg-dual-easy-awg:0.2.1}
     container_name: awg-easy-3
     build:
       context: .
@@ -31,7 +31,7 @@ services:
       AWG_LANG: ${VPN_LANG:-en}
   wg-easy:
     <<: *runtime
-    image: ${WG_IMAGE:-ghcr.io/a-baader/wg-dual-easy-wg:0.2.0}
+    image: ${WG_IMAGE:-ghcr.io/a-baader/wg-dual-easy-wg:0.2.1}
     container_name: wg-easy-dual
     build:
       context: .
