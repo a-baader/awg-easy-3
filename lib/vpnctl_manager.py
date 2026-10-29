@@ -1162,7 +1162,7 @@ def parse_arguments(project,argv):
             if args.data_root:args.data_root=str((Path(project)/args.data_root).resolve())
     return parser,args,validate_only
 
-def main(project,argv=None):
+def _main(project,argv=None):
     try:parser,args,validate_only=parse_arguments(project,argv)
     except (OSError,ValueError,KeyError):
         terminal_message('Ошибка: не удалось прочитать версию исходников vpnctl',file=sys.stderr);return 65
@@ -1268,9 +1268,15 @@ def main(project,argv=None):
             except OSError: pass
         terminal_message('Ошибка: '+str(error),file=sys.stderr);return getattr(error,'code',73)
     except KeyboardInterrupt:
-        terminal_message('Операция прервана; при наличии transaction.json выполните vpnctl recover',file=sys.stderr);return 130
+        return 130
     except (OSError,ValueError,KeyError,TypeError):
         terminal_message('Ошибка: операция не завершена; проверьте vpnctl status и журнал транзакции',file=sys.stderr);return 74
+
+def main(project,argv=None):
+    # Охватывает также меню, разбор параметров и вопросы до начала операции.
+    try:return _main(project,argv)
+    except KeyboardInterrupt:return 130
+
 
 if __name__=='__main__':
     def interrupted(_number,_frame):raise KeyboardInterrupt()

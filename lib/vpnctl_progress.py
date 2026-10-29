@@ -41,6 +41,9 @@ def installation_progress(method):
         progress=InstallationProgress();manager._installation_progress=progress;progress.start()
         try:
             result=method(manager,args)
+        except KeyboardInterrupt:
+            progress.stop()
+            raise
         except BaseException:
             progress.stop();progress.stage('Установка не завершена; подробности указаны в сообщении об ошибке')
             raise
@@ -72,6 +75,9 @@ def removal_progress(method):
         progress=RemovalProgress();manager._removal_progress=progress;progress.start()
         try:
             result=method(manager,args)
+        except KeyboardInterrupt:
+            progress.stop()
+            raise
         except BaseException:
             progress.stop();progress.stage('Удаление не завершено; проверьте сообщение об ошибке и vpnctl recover')
             raise
@@ -110,6 +116,9 @@ def command_progress(args,manager=None):
     if manager is not None:manager._command_progress=progress
     progress.stage('Выполняется');progress.start()
     try:yield
+    except KeyboardInterrupt:
+        progress.stop()
+        raise
     except BaseException:
         progress.stop()
         terminal_message('['+title+'] Выполнение не завершено','error',file=sys.stderr,flush=True)
