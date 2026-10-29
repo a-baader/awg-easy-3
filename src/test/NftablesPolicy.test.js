@@ -127,3 +127,13 @@ test('refuses destructive statements in externally supplied policy text', () => 
     /forbidden destructive/,
   );
 });
+
+test('multicast discovery направляется только от Home своего VPN на свой адрес', () => {
+  for (const [interfaceName, serverAddress4, tableName] of [['awg0', '10.8.0.1', 'awg_easy_3'], ['wg0', '10.9.0.1', 'wg_easy_3']]) {
+    const rules = renderNftablesPolicy({ ...basePolicy(), interfaceName, serverAddress4, tableName, isolation: true });
+    assert.ok(rules.includes(`iifname "${interfaceName}" ip saddr @home4 ip daddr 224.0.0.251 udp dport 5353 dnat ip to ${serverAddress4}`));
+    assert.ok(rules.includes(`iifname "${interfaceName}" ip saddr @home4 ip daddr 239.255.255.250 udp dport 1900 dnat ip to ${serverAddress4}`));
+    assert.doesNotMatch(rules, /iifname "eth0".*dnat/);
+    assert.doesNotMatch(rules, /ip saddr @guest4.*dnat/);
+  }
+});

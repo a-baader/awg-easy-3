@@ -111,8 +111,9 @@ class DiscoveryRelay {
     try {
       for (const service of SERVICES) {
         const interfaceValue = service.family === 'udp4' ? state.server.address4 : state.server.interfaceName;
-        await this.startService(service, interfaceValue);
-        if (this.isolateUnicast) await this.startService(service, interfaceValue, true);
+        // В dual-режиме multicast перенаправляется nftables на адрес своего VPN.
+        // Wildcard-сокет не нужен: он принимал бы трафик всех интерфейсов хоста.
+        await this.startService(service, interfaceValue, this.isolateUnicast);
       }
     } catch (error) {
       await this.stop();

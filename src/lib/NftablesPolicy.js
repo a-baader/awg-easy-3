@@ -181,6 +181,13 @@ table inet ${tableName} {
     type ipv4_addr${elementsClause(normalizedGuest4)}
   }
 ${ipv6Sets}${geo.sets}
+${isolation ? `
+  chain discovery_prerouting {
+    type nat hook prerouting priority dstnat; policy accept;
+    iifname ${quote(awg)} ip saddr @home4 ip daddr 224.0.0.251 udp dport 5353 dnat ip to ${serverAddress4} comment "own VPN mDNS"
+    iifname ${quote(awg)} ip saddr @home4 ip daddr 239.255.255.250 udp dport 1900 dnat ip to ${serverAddress4} comment "own VPN SSDP"
+  }
+` : ''}
   chain client_permissions {
     iifname ${quote(awg)} ip saddr != @active4 drop comment "IPv4 permission: from VPN client"
     oifname ${quote(awg)} ip daddr != @active4 drop comment "IPv4 permission: to VPN client"${ipv6PermissionRules}${isolation ? `

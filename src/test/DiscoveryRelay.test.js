@@ -86,3 +86,19 @@ test('closes a bound socket when multicast membership fails', async () => {
   assert.equal(closed, true);
   assert.equal(relay.sockets.length, 0);
 });
+
+
+test('dual discovery слушает только адрес своего VPN без wildcard-сокетов', async () => {
+  for (const address4 of ['10.8.0.1', '10.9.0.1']) {
+    const binds = [];
+    const relay = new DiscoveryRelay({ isolateUnicast: true, socketFactory: () => ({
+      on() {}, once() {}, off() {},
+      bind(port, host, callback) { binds.push({ port, host }); callback(); },
+      addMembership() { throw new Error('Wildcard multicast не должен запускаться'); },
+      close(callback) { callback(); },
+    }) });
+    await relay.start({ ...state(), server: { ...state().server, address4 } });
+    assert.deepEqual(binds, [{ port: 5353, host: address4 }, { port: 1900, host: address4 }]);
+    await relay.stop();
+  }
+});

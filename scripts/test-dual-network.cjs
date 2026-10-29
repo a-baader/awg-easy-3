@@ -69,6 +69,9 @@ async function reconnect(name, host, port) {
     const volume = prefix + '-' + kind + '-data'; volumes.push(volume); docker('volume', 'create', volume);
     const server = prefix + '-' + kind; servers[kind] = server;
     start(server, kind, 'server', { shared: true, volume }); await ready(server, 'Сервер готов.');
+    const listeners = docker('exec', server, 'ss', '-H', '-lun');
+    assert(!/0\.0\.0\.0:(?:1900|5353)\b|\*:(?:1900|5353)\b/.test(listeners), 'Обнаружен wildcard discovery listener');
+    for (const port of [1900, 5353]) assert(listeners.includes(`10.${kind === 'awg' ? 8 : 9}.0.1:${port}`), 'Нет VPN discovery listener');
     peers[kind] = [];
     for (let i = 0; i < 3; i++) {
       const name = prefix + '-' + kind + '-peer-' + i;
