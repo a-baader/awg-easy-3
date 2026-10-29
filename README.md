@@ -6,7 +6,7 @@
 
 A small Docker web panel for AmneziaWG and standard WireGuard, with two independent VPN services and one `vpnctl` command. An independent, non-commercial fork of [AWG-Easy 3](https://github.com/alexsemenovru/awg-easy-3).
 
-> Current release: **0.2.2**. Existing clients, keys and passwords are retained during updates. See the [release notes](docs/releases/v0.2.2.md).
+> Current release: **0.2.3**. Existing clients, keys and passwords are retained during updates. See the [release notes](docs/releases/v0.2.3.md).
 
 ## At a glance
 
