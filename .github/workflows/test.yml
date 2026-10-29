@@ -41,6 +41,7 @@ jobs:
           python3 ../scripts/test-vpnctl-source-update.py
           python3 ../scripts/test-vpnctl-progress.py
           python3 ../scripts/test-vpnctl-ascii-progress.py
+          python3 ../scripts/test-vpnctl-live-progress.py
           python3 ../scripts/test-vpnctl-interrupt.py
           python3 ../scripts/test-vpnctl-removal-progress.py
           python3 ../scripts/test-vpnctl-output.py

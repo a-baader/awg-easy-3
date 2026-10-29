@@ -22,15 +22,16 @@ from dual_preflight import PreflightError, environment_check, inspect_conflicts,
 from vpnctl_common import ManagerError, atomic_json, atomic_write, execute, global_lock, redact, durable_replace
 from vpnctl_backup import create_archive, verify_archive, extract_component
 import vpnctl_boot
-from vpnctl_terminal import paint,message as terminal_message,help_text
+from vpnctl_terminal import paint,message as terminal_message,help_text,progress_prompt
 from vpnctl_progress import installation_progress,removal_progress,command_progress
 from vpnctl_output import emit_result,format_human
 
 UPDATE_API_VERSION=1
 
 def ask(message):
-    print(paint(message,'prompt',sys.stderr),end='',file=sys.stderr,flush=True)
-    return input()
+    with progress_prompt():
+        print(paint(message,'prompt',sys.stderr),end='',file=sys.stderr,flush=True)
+        return input()
 
 class Parser(argparse.ArgumentParser):
     def __init__(self,*args,**kwargs):

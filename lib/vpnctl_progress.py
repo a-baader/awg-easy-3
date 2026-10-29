@@ -1,16 +1,20 @@
 """Прогресс операций CLI: ASCII-индикаторы и этапы без раскрытия секретов."""
 from contextlib import contextmanager
 from functools import wraps
+import os
 import sys
 import threading
 import time
-from vpnctl_terminal import message as terminal_message
+from vpnctl_terminal import message as terminal_message,ProgressLine
 
 
 class InstallationProgress:
     def __init__(self,interval=10):
-        self.frame=0;self.finished=False;self.interval=interval;self.message='';self.started=time.monotonic()
+        self.line=ProgressLine();self.frame=0;self.finished=False;self.interval=interval;self.message='';self.started=time.monotonic()
         self.lock=threading.Lock();self.stopped=threading.Event();self.thread=None
+    def display(self,text,style='label',**kwargs):
+        final=self.finished or self.stopped.is_set() or style=='error'
+        self.line.write(text,style,final=final)
     def bar(self):
         if self.finished:return '['+'#'*20+'] 100%'
         position=self.frame%17;self.frame+=1
@@ -19,12 +23,12 @@ class InstallationProgress:
         with self.lock:
             self.message=message;self.started=time.monotonic()
             self.finished=message=='Установка завершена'
-            terminal_message('[Установка] '+message+' '+self.bar(),'error' if message.startswith('Установка не завершена') else 'success' if message=='Установка завершена' else 'label',file=sys.stderr,flush=True)
+            self.display('[Установка] '+message+' '+self.bar(),'error' if message.startswith('Установка не завершена') else 'success' if message=='Установка завершена' else 'label',file=sys.stderr,flush=True)
     def heartbeat(self):
         with self.lock:
             if self.message:
                 elapsed=int(time.monotonic()-self.started)
-                terminal_message('[Установка] '+self.message+' — выполняется, прошло '+str(elapsed)+' с '+self.bar(),'label',file=sys.stderr,flush=True)
+                self.display('[Установка] '+self.message+' — выполняется, прошло '+str(elapsed)+' с '+self.bar(),'label',file=sys.stderr,flush=True)
     def start(self):
         def repeat():
             while not self.stopped.wait(self.interval):self.heartbeat()
@@ -32,13 +36,14 @@ class InstallationProgress:
     def stop(self):
         self.stopped.set()
         if self.thread:self.thread.join()
+        self.line.finish()
 
 
 def installation_progress(method):
     @wraps(method)
     def wrapped(manager,args):
         if getattr(manager,'_installation_progress',None) or getattr(args,'dry_run',False):return method(manager,args)
-        progress=InstallationProgress();manager._installation_progress=progress;progress.start()
+        progress=InstallationProgress(interval=0.2 if sys.stderr.isatty() and os.environ.get('TERM')!='dumb' else 10);manager._installation_progress=progress;progress.start()
         try:
             result=method(manager,args)
         except KeyboardInterrupt:
@@ -60,19 +65,19 @@ class RemovalProgress(InstallationProgress):
             self.message=message;self.started=time.monotonic()
             style='error' if message.startswith('Удаление не завершено') else 'success' if message=='Удаление завершено' else 'label'
             self.finished=message=='Удаление завершено'
-            terminal_message('[Удаление] '+message+' '+self.bar(),style,file=sys.stderr,flush=True)
+            self.display('[Удаление] '+message+' '+self.bar(),style,file=sys.stderr,flush=True)
     def heartbeat(self):
         with self.lock:
             if self.message:
                 elapsed=int(time.monotonic()-self.started)
-                terminal_message('[Удаление] '+self.message+' — выполняется, прошло '+str(elapsed)+' с '+self.bar(),'label',file=sys.stderr,flush=True)
+                self.display('[Удаление] '+self.message+' — выполняется, прошло '+str(elapsed)+' с '+self.bar(),'label',file=sys.stderr,flush=True)
 
 
 def removal_progress(method):
     @wraps(method)
     def wrapped(manager,args):
         if getattr(manager,'_removal_progress',None) or getattr(args,'dry_run',False):return method(manager,args)
-        progress=RemovalProgress();manager._removal_progress=progress;progress.start()
+        progress=RemovalProgress(interval=0.2 if sys.stderr.isatty() and os.environ.get('TERM')!='dumb' else 10);manager._removal_progress=progress;progress.start()
         try:
             result=method(manager,args)
         except KeyboardInterrupt:
@@ -94,12 +99,12 @@ class CommandProgress(InstallationProgress):
     def stage(self,message):
         with self.lock:
             self.message=message;self.started=time.monotonic()
-            terminal_message('['+self.title+'] '+message+' '+self.bar(),
+            self.display('['+self.title+'] '+message+' '+self.bar(),
                              'success' if self.finished else 'label',file=sys.stderr,flush=True)
     def heartbeat(self):
         with self.lock:
             elapsed=int(time.monotonic()-self.started)
-            terminal_message('['+self.title+'] '+self.message+' '+self.bar()+' — прошло '+str(elapsed)+' с',
+            self.display('['+self.title+'] '+self.message+' '+self.bar()+' — прошло '+str(elapsed)+' с',
                              'label',file=sys.stderr,flush=True)
 
 
@@ -112,7 +117,7 @@ def command_progress(args,manager=None):
     from vpnctl_output import COMMANDS
     title=COMMANDS.get(args.command,'Смена пароля' if args.command=='reset-password' else args.command)
     if getattr(args,'action',None):title+=': '+args.action
-    progress=CommandProgress(title,interval=1 if sys.stderr.isatty() else 10)
+    progress=CommandProgress(title,interval=0.2 if sys.stderr.isatty() and os.environ.get('TERM')!='dumb' else 10)
     if manager is not None:manager._command_progress=progress
     progress.stage('Выполняется');progress.start()
     try:yield
