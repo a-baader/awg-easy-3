@@ -49,6 +49,28 @@ class Output(unittest.TestCase):
         text=path.read_text();self.assertNotIn('СЕКРЕТ',text);self.assertNotIn('vpn://',text)
         report=json.loads(text);self.assertEqual(report['panels']['wg']['panel_url'],'http://10.9.0.1:51825')
         self.assertEqual(report['panels']['wg']['profile_file'],'/etc/vpn-easy-dual/bootstrap/wg.conf')
+    def test_install_and_reinstall_print_actual_ports(self):
+        cfg=self.manager.config();cfg['components']['awg']['udp_port']=40123
+        cfg['components']['wg']['panel_port']=53001;self.manager.write_config(cfg)
+        for command in ('install','reinstall'):
+            with self.subTest(command=command):
+                out=io.StringIO();args=self.args(command)
+                with mock.patch('sys.stdout',out):emit_result(self.manager,args,{'installed':True})
+                text=out.getvalue()
+                for expected in ['Порты установленных сервисов:','AWG','WG','VPN (UDP): 40123',
+                                 'Панель (TCP): 51821','VPN (UDP): 51824','Панель (TCP): 53001']:
+                    self.assertIn(expected,text)
+                report=json.loads(result_path(self.manager,args).read_text())
+                self.assertEqual(report['panels']['awg']['udp_port'],40123)
+                self.assertEqual(report['panels']['wg']['panel_port'],53001)
+    def test_single_service_and_dry_run_ports(self):
+        cfg=self.manager.config();del cfg['components']['awg'];self.manager.write_config(cfg)
+        out=io.StringIO()
+        with mock.patch('sys.stdout',out):emit_result(self.manager,self.args('install'),{'installed':True})
+        self.assertIn('VPN (UDP): 51824',out.getvalue());self.assertNotIn('AWG',out.getvalue())
+        out=io.StringIO()
+        with mock.patch('sys.stdout',out):emit_result(self.manager,self.args('install','--dry-run'),{'dry_run':True})
+        self.assertNotIn('Порты установленных сервисов:',out.getvalue())
     def test_filter_removes_nested_secrets_and_profile_content(self):
         value={'name':'Телефон','data':[{'private_key':'СКРЫТЬ','presharedKey':'СКРЫТЬ','password':'СКРЫТЬ',
              'secret':'СКРЫТЬ','token':'СКРЫТЬ','nativeConfig':'СКРЫТЬ','vpn_url':'СКРЫТЬ'}],

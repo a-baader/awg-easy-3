@@ -21,7 +21,7 @@ LABELS={
     'existing_components_unchanged':'Существующие сервисы сохранены','source_commit':'Commit исходников',
     'sources_directory':'Каталог исходников','previous_sources_preserved':'Предыдущие исходники сохранены',
     'dry_run':'Только проверка и план','update_sources':'Обновление исходников','images':'Образы',
-    'profile_file':'Файл профиля','udp_port':'UDP-порт','name':'Имя','id':'Идентификатор',
+    'profile_file':'Файл профиля','udp_port':'VPN (UDP)','panel_port':'Панель (TCP)','name':'Имя','id':'Идентификатор',
     'clients':'Клиенты','group':'Группа','enabled':'Включено','backend':'VPN backend','requested':'Запрошено',
     'skipped':'Пропущено','status':'Состояние','result':'Результат','success':'Успешно',
     'awg':'AWG','wg':'WG','all':'Все сервисы','remove':'К удалению','reinstall':'К переустановке',
@@ -88,14 +88,20 @@ def public_result(manager,args,result):
             'created_at':datetime.now(timezone.utc).isoformat(),'result':public_value(result)}
     if getattr(args,'action',None):report['action']=args.action
     if args.command in ('install','reinstall'):
-        report['panels']={}
-        config=manager.config(False)
-        for name,item in (config or {}).get('components',{}).items():
-            initial=manager.bootstrap_results.get(name,{})
-            report['panels'][name]={'panel_url':initial.get('panel_url') or 'http://'+item['address4']+':'+str(item['panel_port']),
-                                   'profile_file':initial.get('profile_file') or str(manager.root/'bootstrap'/(name+'.conf')),
-                                   'udp_port':item['udp_port']}
+        report['panels']=installation_connections(manager)
     return report
+
+
+def installation_connections(manager):
+    # Фактические порты берутся из сохранённой конфигурации после установки.
+    panels={}
+    config=manager.config(False)
+    for name,item in (config or {}).get('components',{}).items():
+        initial=manager.bootstrap_results.get(name,{})
+        panels[name]={'udp_port':item['udp_port'],'panel_port':item['panel_port'],
+                      'panel_url':initial.get('panel_url') or 'http://'+item['address4']+':'+str(item['panel_port']),
+                      'profile_file':initial.get('profile_file') or str(manager.root/'bootstrap'/(name+'.conf'))}
+    return panels
 
 
 def write_result(report,path):
@@ -125,6 +131,13 @@ def emit_result(manager,args,result):
         print(json.dumps(result,ensure_ascii=False,indent=2));return 0
     print(paint(COMMANDS.get(args.command,args.command)+':','heading'))
     print(format_human(result,2))
+    if args.command in ('install','reinstall') and not getattr(args,'dry_run',False):
+        connections=installation_connections(manager)
+        if connections:
+            print('\n'+paint('Порты установленных сервисов:','heading'))
+            for name,item in connections.items():
+                print('  '+paint(name.upper(),'heading'))
+                print(format_human({'udp_port':item['udp_port'],'panel_port':item['panel_port']},4))
     # Секреты показываются до записи отчёта: ошибка диска не должна скрыть
     # однократный пароль уже успешно созданной панели.
     print_bootstrap(manager)

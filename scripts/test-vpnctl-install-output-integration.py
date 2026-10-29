@@ -32,6 +32,9 @@ try:
         assert payload['panels'][name]['panel_url']==initial['panel_url']
         assert payload['panels'][name]['profile_file']==initial['profile_file']
         if initial.get('vpn_url'):assert initial['vpn_url'] in text and initial['vpn_url'].encode() not in saved
+    for item in manager.config()['components'].values():
+        assert 'VPN (UDP): '+str(item['udp_port']) in text
+        assert 'Панель (TCP): '+str(item['panel_port']) in text
     assert all(manager.inspect_container(item['container'])['State']['Health']['Status']=='healthy' for item in manager.config()['components'].values())
     passed('обычная установка: реальные этапы в stderr, читаемый результат и пароли в терминале; JSON-файл 0600 без паролей и vpn://')
     fresh=IsolatedManager();text,progress=invoke(fresh,['status','--json'])
