@@ -17,9 +17,12 @@ from vpnctl_progress import RemovalProgress,removal_progress
 from vpnctl_common import ManagerError
 fixture=runpy.run_path(str(PROJECT/'scripts/test-vpnctl.py'))
 
+class Terminal(io.StringIO):
+    def isatty(self):return True
+
 class Removal(unittest.TestCase):
     def test_heartbeat_only_stderr(self):
-        out=io.StringIO();err=io.StringIO()
+        out=io.StringIO();err=Terminal()
         with mock.patch('sys.stdout',out),mock.patch('sys.stderr',err):
             progress=RemovalProgress();progress.stage('Удаление образов');progress.heartbeat()
         self.assertEqual(out.getvalue(),'');self.assertIn('[Удаление]',err.getvalue())

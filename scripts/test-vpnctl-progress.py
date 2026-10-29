@@ -16,9 +16,12 @@ from vpnctl_manager import parse_arguments
 from vpnctl_common import ManagerError
 fixture=runpy.run_path(str(PROJECT/'scripts/test-vpnctl.py'))
 
+class Terminal(io.StringIO):
+    def isatty(self):return True
+
 class Progress(unittest.TestCase):
     def test_stages_and_heartbeat_go_to_stderr_only(self):
-        out=io.StringIO();err=io.StringIO()
+        out=io.StringIO();err=Terminal()
         with mock.patch('sys.stdout',out),mock.patch('sys.stderr',err):
             progress=InstallationProgress();progress.stage('Загрузка образа AWG');progress.heartbeat();progress.stop()
         self.assertEqual(out.getvalue(),'');self.assertIn('Загрузка образа AWG',err.getvalue());self.assertIn('выполняется, прошло',err.getvalue())
@@ -26,7 +29,7 @@ class Progress(unittest.TestCase):
         progress=InstallationProgress(interval=0.01);called=threading.Event();heartbeat=progress.heartbeat
         def notify():heartbeat();called.set()
         progress.heartbeat=notify
-        with mock.patch('sys.stderr',io.StringIO()) as err:
+        with mock.patch('sys.stderr',Terminal()) as err:
             progress.stage('Ожидание загрузки');progress.start()
             try:self.assertTrue(called.wait(2),'Периодическое сообщение не получено')
             finally:progress.stop()

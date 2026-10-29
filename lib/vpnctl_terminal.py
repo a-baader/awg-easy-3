@@ -52,13 +52,15 @@ class ProgressLine:
     """Одна строка stderr в TTY; построчный журнал при перенаправлении."""
     def __init__(self):
         self.stream=None;self.width=0;self.paused=False
-    def write(self,text,style='label',final=False):
+    def write(self,text,style='label',final=False,transient=False):
         global _active_line,_last_line
         with _line_lock:
             if self.paused:return
             _last_line=self
             stream=sys.stderr
-            if not stream.isatty() or os.environ.get('TERM')=='dumb':
+            if not stream.isatty():
+                # В логе сохраняются этапы, но не каждый кадр анимации.
+                if transient:return
                 self.finish()
                 print(paint(text,style,stream),file=stream,flush=True)
                 return

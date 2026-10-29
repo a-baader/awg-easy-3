@@ -1,7 +1,6 @@
 """Прогресс операций CLI: ASCII-индикаторы и этапы без раскрытия секретов."""
 from contextlib import contextmanager
 from functools import wraps
-import os
 import sys
 import threading
 import time
@@ -14,7 +13,7 @@ class InstallationProgress:
         self.lock=threading.Lock();self.stopped=threading.Event();self.thread=None
     def display(self,text,style='label',**kwargs):
         final=self.finished or self.stopped.is_set() or style=='error'
-        self.line.write(text,style,final=final)
+        self.line.write(text,style,final=final,transient=kwargs.get('transient',False))
     def bar(self):
         if self.finished:return '['+'#'*20+'] 100%'
         position=self.frame%17;self.frame+=1
@@ -28,7 +27,7 @@ class InstallationProgress:
         with self.lock:
             if self.message:
                 elapsed=int(time.monotonic()-self.started)
-                self.display('[Установка] '+self.message+' — выполняется, прошло '+str(elapsed)+' с '+self.bar(),'label',file=sys.stderr,flush=True)
+                self.display('[Установка] '+self.message+' — выполняется, прошло '+str(elapsed)+' с '+self.bar(),'label',file=sys.stderr,flush=True,transient=True)
     def start(self):
         def repeat():
             while not self.stopped.wait(self.interval):self.heartbeat()
@@ -43,7 +42,7 @@ def installation_progress(method):
     @wraps(method)
     def wrapped(manager,args):
         if getattr(manager,'_installation_progress',None) or getattr(args,'dry_run',False):return method(manager,args)
-        progress=InstallationProgress(interval=0.2 if sys.stderr.isatty() and os.environ.get('TERM')!='dumb' else 10);manager._installation_progress=progress;progress.start()
+        progress=InstallationProgress(interval=0.2 if sys.stderr.isatty() else 10);manager._installation_progress=progress;progress.start()
         try:
             result=method(manager,args)
         except KeyboardInterrupt:
@@ -70,14 +69,14 @@ class RemovalProgress(InstallationProgress):
         with self.lock:
             if self.message:
                 elapsed=int(time.monotonic()-self.started)
-                self.display('[Удаление] '+self.message+' — выполняется, прошло '+str(elapsed)+' с '+self.bar(),'label',file=sys.stderr,flush=True)
+                self.display('[Удаление] '+self.message+' — выполняется, прошло '+str(elapsed)+' с '+self.bar(),'label',file=sys.stderr,flush=True,transient=True)
 
 
 def removal_progress(method):
     @wraps(method)
     def wrapped(manager,args):
         if getattr(manager,'_removal_progress',None) or getattr(args,'dry_run',False):return method(manager,args)
-        progress=RemovalProgress(interval=0.2 if sys.stderr.isatty() and os.environ.get('TERM')!='dumb' else 10);manager._removal_progress=progress;progress.start()
+        progress=RemovalProgress(interval=0.2 if sys.stderr.isatty() else 10);manager._removal_progress=progress;progress.start()
         try:
             result=method(manager,args)
         except KeyboardInterrupt:
@@ -105,7 +104,7 @@ class CommandProgress(InstallationProgress):
         with self.lock:
             elapsed=int(time.monotonic()-self.started)
             self.display('['+self.title+'] '+self.message+' '+self.bar()+' — прошло '+str(elapsed)+' с',
-                             'label',file=sys.stderr,flush=True)
+                             'label',file=sys.stderr,flush=True,transient=True)
 
 
 @contextmanager
@@ -117,7 +116,7 @@ def command_progress(args,manager=None):
     from vpnctl_output import COMMANDS
     title=COMMANDS.get(args.command,'Смена пароля' if args.command=='reset-password' else args.command)
     if getattr(args,'action',None):title+=': '+args.action
-    progress=CommandProgress(title,interval=0.2 if sys.stderr.isatty() and os.environ.get('TERM')!='dumb' else 10)
+    progress=CommandProgress(title,interval=0.2 if sys.stderr.isatty() else 10)
     if manager is not None:manager._command_progress=progress
     progress.stage('Выполняется');progress.start()
     try:yield

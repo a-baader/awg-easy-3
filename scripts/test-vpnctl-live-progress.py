@@ -31,11 +31,24 @@ class LiveProgress(unittest.TestCase):
             self.assertNotIn('\n',text);self.assertNotIn('\033',text)
             line.finish()
         self.assertTrue(stream.getvalue().endswith('\n'))
-    def test_redirect_and_dumb_are_plain_lines(self):
-        for stream,term in [(io.StringIO(),'xterm'),(Terminal(),'dumb')]:
+    def test_redirect_is_plain_lines(self):
+        for stream,term in [(io.StringIO(),'xterm')]:
             with mock.patch('sys.stderr',stream),mock.patch.dict(os.environ,{'TERM':term}):
                 line=ProgressLine();line.write('Первый');line.write('Второй',final=True)
             self.assertEqual(stream.getvalue(),'Первый\nВторой\n')
+    def test_dumb_tty_redraws_without_ansi_or_newlines_per_tick(self):
+        stream=Terminal();line=ProgressLine()
+        with mock.patch('sys.stderr',stream),mock.patch.dict(os.environ,{'TERM':'dumb'}):
+            line.write('Первый');line.write('Второй',transient=True)
+            self.assertNotIn('\n',stream.getvalue());self.assertNotIn('\033',stream.getvalue())
+            self.assertEqual(stream.getvalue().count('\r'),2);line.finish()
+    def test_redirect_omits_animation_frames_and_keeps_stage_changes(self):
+        stream=io.StringIO();line=ProgressLine()
+        with mock.patch('sys.stderr',stream):
+            line.write('Первый этап')
+            for _ in range(5):line.write('Повторный тик',transient=True)
+            line.write('Второй этап');line.write('Завершено',final=True)
+        self.assertEqual(stream.getvalue(),'Первый этап\nВторой этап\nЗавершено\n')
     def test_warning_closes_current_line(self):
         stream=Terminal();line=ProgressLine()
         with mock.patch('sys.stderr',stream):
