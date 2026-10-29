@@ -43,3 +43,33 @@ def installation_progress(method):
             return result
         finally:del manager._installation_progress
     return wrapped
+
+
+class RemovalProgress(InstallationProgress):
+    def stage(self,message):
+        with self.lock:
+            self.message=message;self.started=time.monotonic()
+            style='error' if message.startswith('Удаление не завершено') else 'success' if message=='Удаление завершено' else 'label'
+            terminal_message('[Удаление] '+message,style,file=sys.stderr,flush=True)
+    def heartbeat(self):
+        with self.lock:
+            if self.message:
+                elapsed=int(time.monotonic()-self.started)
+                terminal_message('[Удаление] '+self.message+' — выполняется, прошло '+str(elapsed)+' с','label',file=sys.stderr,flush=True)
+
+
+def removal_progress(method):
+    @wraps(method)
+    def wrapped(manager,args):
+        if getattr(manager,'_removal_progress',None) or getattr(args,'dry_run',False):return method(manager,args)
+        progress=RemovalProgress();manager._removal_progress=progress;progress.start()
+        try:
+            result=method(manager,args)
+        except BaseException:
+            progress.stop();progress.stage('Удаление не завершено; проверьте сообщение об ошибке и vpnctl recover')
+            raise
+        else:
+            progress.stop();progress.stage('Изменения не требуются' if result.get('unchanged') else 'Удаление завершено')
+            return result
+        finally:del manager._removal_progress
+    return wrapped

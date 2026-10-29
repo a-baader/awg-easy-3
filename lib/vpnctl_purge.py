@@ -47,6 +47,7 @@ def image_candidates(manager,configs):
 
 
 def purge(manager,args):
+    manager.removal_stage('Проверка установки, внутренних backup и принадлежности ресурсов')
     config=manager.config(False)
     check_paths(manager,config)
     result={'purged':True,'sources_preserved':True,'backups_preserved':False,'forwarding_values_preserved':True}
@@ -105,7 +106,9 @@ def remove_images(manager,images):
 
 def finish(manager,journal):
     check_paths(manager)
+    manager.removal_stage('Удаление неиспользуемых образов проекта')
     removed,preserved=remove_images(manager,journal.get('purge_images',[]))
+    manager.removal_stage('Удаление внутренних backup, первых профилей и служебных данных')
     for name in DIRECTORIES:
         path=manager.root/name
         if path.exists():shutil.rmtree(path)

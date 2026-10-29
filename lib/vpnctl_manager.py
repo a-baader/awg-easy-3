@@ -23,7 +23,7 @@ from vpnctl_common import ManagerError, atomic_json, atomic_write, execute, glob
 from vpnctl_backup import create_archive, verify_archive, extract_component
 import vpnctl_boot
 from vpnctl_terminal import paint,message as terminal_message,help_text
-from vpnctl_progress import installation_progress
+from vpnctl_progress import installation_progress,removal_progress
 from vpnctl_output import emit_result,format_human
 
 UPDATE_API_VERSION=1
@@ -59,6 +59,10 @@ class Manager:
 
     def install_stage(self,message):
         progress=getattr(self,'_installation_progress',None)
+        if progress:progress.stage(message)
+
+    def removal_stage(self,message):
+        progress=getattr(self,'_removal_progress',None)
         if progress:progress.stage(message)
 
     def config(self, required=True):
@@ -917,12 +921,14 @@ class Manager:
         except BaseException:self.rollback(journal);raise
 
     def finish_uninstall(self,journal):
+        self.removal_stage('Удаление первых профилей и обновление конфигурации')
         candidate=journal['candidate'];previous=journal['previous']
         for name in journal['selected']:
             for suffix in ['.conf','.vpn-url']:(self.root/'bootstrap'/(name+suffix)).unlink(missing_ok=True)
         if candidate['components']:
             candidate.pop('maintenance_components',None);self.write_config(candidate)
         else:
+            self.removal_stage('Удаление установленного vpnctl и службы проверки после загрузки ОС')
             try:vpnctl_boot.configure(self,False,previous)
             except ManagerError as error:
                 if error.code!=73:raise
@@ -940,11 +946,14 @@ class Manager:
             return vpnctl_purge.finish(self,journal)
         self.journal.unlink(missing_ok=True)
 
+    @removal_progress
     def purge(self,args):
         import vpnctl_purge
         return vpnctl_purge.purge(self,args)
 
+    @removal_progress
     def uninstall(self,args):
+        self.removal_stage('Проверка установки и принадлежности ресурсов')
         config=self.config(False)
         if not config: return {'unchanged':True,'installed':False}
         selected=self.selected(config,args.component); self.owned(config)
@@ -953,14 +962,18 @@ class Manager:
         journal={'operation':'uninstall','phase':'prepared','previous':config,'candidate':candidate,'selected':selected}
         if getattr(args,'purge',False):journal.update(purge=True,purge_images=args.purge_images)
         try:
+            self.removal_stage('Подготовка удаления и сохранение внутреннего backup')
             self.freeze(journal)
             snapshot=self.backup_selected(config,selected)['file']
             journal.update(snapshot=snapshot,phase='snapshot_verified');self.save_journal(journal)
             for name in selected:
                 item=config['components'][name]
+                self.removal_stage('Остановка и удаление контейнера '+name.upper())
                 self.compose('stop',name+'-easy'); self.compose('rm','-f',name+'-easy')
+                self.removal_stage('Проверка освобождения сетевых ресурсов '+name.upper())
                 if self.run(['ip','link','show','dev',item['interface']],check=False) is not None or self.run(['nft','list','table','inet',item['table']],check=False) is not None:
                     raise ManagerError('Сетевые ресурсы остались активны; данные сохранены',75)
+                self.removal_stage('Удаление клиентов, ключей, пароля и настроек '+name.upper())
                 shutil.rmtree(item['data_directory']); del candidate['components'][name]
                 journal['phase']='removed:'+name;self.save_journal(journal)
             journal['candidate']=candidate
@@ -969,9 +982,10 @@ class Manager:
             result=self.finish_uninstall(journal)
             if journal.get('purge'):return result
             command=self.system_root/'usr/local/sbin/vpnctl'
-            return {'removed':selected,'snapshot':snapshot,'forwarding_values_preserved':True,'backups_preserved':True,'vpnctl_removed':not command.exists() and not command.is_symlink()}
+            return {'removed':selected,'remaining_components':list(candidate['components']),'sources_preserved':True,'snapshot':snapshot,'forwarding_values_preserved':True,'backups_preserved':True,'vpnctl_removed':not command.exists() and not command.is_symlink()}
         except BaseException:
             if journal.get('purge') and journal.get('phase')=='committed':raise
+            self.removal_stage('Откат незавершённого удаления')
             self.rollback(journal);raise
 
     def check_plan(self,candidate,previous=None):

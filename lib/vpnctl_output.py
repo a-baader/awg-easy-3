@@ -12,7 +12,7 @@ LABELS={
     'container':'Контейнер','running':'Запущен','health':'Готовность','image':'Образ','image_ref':'Ссылка на образ',
     'interface':'Интерфейс','panel_url':'Адрес панели','recovery_required':'Требуется восстановление',
     'updated':'Обновлено','reason':'Причина','snapshot':'Резервная копия','file':'Файл','verified':'Проверено',
-    'added':'Добавлено','removed':'Удалено','reinstalled':'Переустановлено','restored':'Восстановлено',
+    'added':'Добавлено','remaining_components':'Оставшиеся сервисы','removed':'Удалено','reinstalled':'Переустановлено','restored':'Восстановлено',
     'purged':'Полное удаление выполнено','sources_preserved':'Исходники сохранены',
     'backups_preserved':'Внутренние backup сохранены','forwarding_values_preserved':'Forwarding сохранён',
     'vpnctl_removed':'Установленный vpnctl удалён','images_removed':'Удалённые образы',
@@ -129,7 +129,8 @@ def emit_result(manager,args,result):
     if getattr(args,'json',False):
         if manager.bootstrap_results:result={**result,'bootstrap':manager.bootstrap_results}
         print(json.dumps(result,ensure_ascii=False,indent=2));return 0
-    print(paint(COMMANDS.get(args.command,args.command)+':','heading'))
+    title='Итоговый отчёт об удалении' if args.command in ('uninstall','purge') and not getattr(args,'dry_run',False) else COMMANDS.get(args.command,args.command)
+    print(paint(title+':','heading'))
     print(format_human(result,2))
     if args.command in ('install','reinstall') and not getattr(args,'dry_run',False):
         connections=installation_connections(manager)
