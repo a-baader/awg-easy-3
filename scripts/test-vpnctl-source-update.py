@@ -17,6 +17,8 @@ import vpnctl_source_update as updater
 import vpnctl_boot
 import vpnctl_purge
 from vpnctl_common import ManagerError
+version_parts=[int(part) for part in (PROJECT/'VERSION').read_text().strip().split('.')]
+TEST_VERSION='.'.join(map(str,[*version_parts[:2],version_parts[2]+1]))
 fixture=runpy.run_path(str(PROJECT/'scripts/test-vpnctl.py'))
 
 class SourceUpdate(unittest.TestCase):
@@ -24,7 +26,7 @@ class SourceUpdate(unittest.TestCase):
         self.temp=tempfile.TemporaryDirectory(prefix='vpnctl-source-');self.root=Path(self.temp.name)
         self.manager=fixture['FakeManager'](self.root)
         self.config=fixture['config'](self.root);self.manager.register(self.config)
-        self.release={'version':'0.2.0','source_commit':'b'*40,'platform':'linux/amd64',
+        self.release={'version':TEST_VERSION,'source_commit':'b'*40,'platform':'linux/amd64',
             'images':{name:'ghcr.io/a-baader/wg-dual-easy-'+name+'@sha256:'+'a'*64 for name in ['awg','wg']}}
         self.args=vpnctl_manager.parse_arguments(PROJECT,['update'])[1]
     def tearDown(self):self.temp.cleanup()
@@ -45,13 +47,13 @@ class SourceUpdate(unittest.TestCase):
         self.assertFalse(self.manager.journal.exists())
     def test_same_commit_and_images_are_noop(self):
         config=self.manager.config();config['source_commit']=self.release['source_commit']
-        for name,item in config['components'].items():item.update(version='0.2.0',image_ref=self.release['images'][name])
+        for name,item in config['components'].items():item.update(version=TEST_VERSION,image_ref=self.release['images'][name])
         self.manager.write_config(config)
         with mock.patch.object(updater,'stage_source') as stage:self.assertFalse(self.update()['updated'])
         stage.assert_not_called()
     def test_fresh_clean_release_checkout_does_not_restart_current_images(self):
         config=self.manager.config()
-        for name,item in config['components'].items():item.update(version='0.2.0',image_ref=self.release['images'][name])
+        for name,item in config['components'].items():item.update(version=TEST_VERSION,image_ref=self.release['images'][name])
         self.manager.write_config(config)
         self.manager.run=lambda args,**kwargs:self.release['source_commit'] if args[-1]=='HEAD' else ''
         with mock.patch.object(updater,'stage_source') as stage:self.assertFalse(self.update()['updated'])
@@ -93,13 +95,13 @@ class SourceUpdate(unittest.TestCase):
         with updater.release_namespace(source) as namespace:self.assertEqual(namespace['UPDATE_API_VERSION'],1)
         self.assertIs(sys.modules['vpnctl_manager'],previous)
     def test_cached_sources_must_match_commit_and_version(self):
-        source=self.source();cache=self.manager.root/'sources'/('v0.2.0-'+self.release['source_commit']);cache.parent.mkdir();source.rename(cache)
+        source=self.source();cache=self.manager.root/'sources'/('v'+TEST_VERSION+'-'+self.release['source_commit']);cache.parent.mkdir();source.rename(cache)
         self.manager.run=lambda args,**kwargs:self.release['source_commit'] if args[-1]=='HEAD' else ''
         self.assertEqual(updater.stage_source(self.manager,self.release),cache)
         (cache/'VERSION').write_text('9.0.0')
         with self.assertRaisesRegex(ManagerError,'Версия исходников'):updater.stage_source(self.manager,self.release)
     def test_changed_cached_sources_are_preserved(self):
-        source=self.source();cache=self.manager.root/'sources'/('v0.2.0-'+self.release['source_commit']);cache.parent.mkdir();source.rename(cache)
+        source=self.source();cache=self.manager.root/'sources'/('v'+TEST_VERSION+'-'+self.release['source_commit']);cache.parent.mkdir();source.rename(cache)
         self.manager.run=lambda args,**kwargs:self.release['source_commit'] if args[-1]=='HEAD' else ' M vpnctl'
         with self.assertRaisesRegex(ManagerError,'изменены'):updater.stage_source(self.manager,self.release)
         self.assertEqual((cache/'vpnctl').read_text(),'исходники')
@@ -116,7 +118,7 @@ class SourceUpdate(unittest.TestCase):
         value=self.release;raw=json.dumps(value).encode()
         import hashlib
         def fetch(url):
-            if url.endswith('/latest'):return json.dumps({'tag_name':'v0.2.0','draft':False,'prerelease':False}).encode()
+            if url.endswith('/latest'):return json.dumps({'tag_name':'v'+TEST_VERSION,'draft':False,'prerelease':False}).encode()
             if url.endswith('SHA256SUMS'):return (hashlib.sha256(raw).hexdigest()+'  release-manifest.json\n').encode()
             return raw
         self.assertEqual(vpnctl_boot.fetch_release(fetch=fetch),value)

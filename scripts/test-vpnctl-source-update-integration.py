@@ -8,6 +8,8 @@ import subprocess
 import vpnctl_source_update as updater
 from vpnctl_common import ManagerError
 
+version_parts=[int(part) for part in (PROJECT/'VERSION').read_text().strip().split('.')]
+TEST_VERSION='.'.join(map(str,[*version_parts[:2],version_parts[2]+1]))
 manager=IsolatedManager();builders=[];tags=[]
 try:
     execute(['docker','run','-d','--name',anchor,'--network','bridge','--cap-add','NET_ADMIN','--device','/dev/net/tun',
@@ -25,14 +27,14 @@ try:
         source=PROJECT/name
         if not source.is_file():continue
         target=repository/name;target.parent.mkdir(parents=True,exist_ok=True);shutil.copy2(source,target)
-    (repository/'VERSION').write_text('0.2.0\n')
-    package=json.loads((repository/'src/package.json').read_text());package['version']='0.2.0'
+    (repository/'VERSION').write_text(TEST_VERSION+'\n')
+    package=json.loads((repository/'src/package.json').read_text());package['version']=TEST_VERSION
     (repository/'src/package.json').write_text(json.dumps(package)+'\n')
     with (repository/'lib/vpnctl_manager.py').open('a') as stream:stream.write("\nRELEASE_TEST_MARKER='stable fixture'\n")
-    for command in [['init','-q'],['config','user.name','Проверка vpnctl'],['config','user.email','vpnctl-test@example.invalid'],['add','.'],['commit','-qm','Тестовый стабильный релиз'],['tag','v0.2.0']]:
+    for command in [['init','-q'],['config','user.name','Проверка vpnctl'],['config','user.email','vpnctl-test@example.invalid'],['add','.'],['commit','-qm','Тестовый стабильный релиз'],['tag','v'+TEST_VERSION]]:
         execute(['git','-C',str(repository),*command])
     revision=execute(['git','-C',str(repository),'rev-parse','HEAD']).strip()
-    release={'version':'0.2.0','source_commit':revision,'platform':'linux/amd64','images':{}}
+    release={'version':TEST_VERSION,'source_commit':revision,'platform':'linux/amd64','images':{}}
     # Готовые тестовые образы отличаются только package version; сборки на
     # стороне обновления нет. Исходный ENTRYPOINT сохраняется при docker cp.
     for name in ['awg','wg']:
@@ -79,7 +81,7 @@ try:
         assert sentinel.read_text().strip()==str(source)
         assert execute(['git','-C',str(source),'rev-parse','HEAD']).strip()==revision
         for name,item in config['components'].items():
-            assert item['image']==release['images'][name] and item['version']=='0.2.0'
+            assert item['image']==release['images'][name] and item['version']==TEST_VERSION
             assert (Path(item['data_directory'])/'state.json').read_bytes()==before[name]
             native=manager.rpc(item,'client.export',{'name':'admin','format':'conf'})['value']
             probe=manager.packet_probe(item,{'nativeConfig':native,'requests':[
