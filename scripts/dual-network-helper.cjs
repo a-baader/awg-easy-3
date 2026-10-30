@@ -75,10 +75,23 @@ async function request(host, portNumber, allow) {
     const target = state.clients.find(client => client.name === process.argv[3] || client.id === process.argv[3]);
     assert(target, 'Клиент для проверки не найден');
     const base = `http://10.${n}.0.1:${port}`;
-    const login = await fetch(base + '/api/v1/session', { method: 'POST', headers: { 'Content-Type': 'application/json', Origin: base }, body: JSON.stringify({ password: await read('test-password') }) });
-    assert.equal(login.status, 200);
+    // Изменения политики используют сессию, как браузер: тест не обходит
+    // production rate limit и не создаёт отдельный login для каждого PATCH.
+    let cookie;
+    try { cookie = await read('test-session-cookie'); }
+    catch (error) { if (error.code !== 'ENOENT') throw error; }
+    if (cookie) {
+      const session = await fetch(base + '/api/v1/session', { headers: { Cookie: cookie } });
+      if (!(await session.json()).authenticated) cookie = undefined;
+    }
+    if (!cookie) {
+      const login = await fetch(base + '/api/v1/session', { method: 'POST', headers: { 'Content-Type': 'application/json', Origin: base }, body: JSON.stringify({ password: await read('test-password') }) });
+      assert.equal(login.status, 200);
+      cookie = login.headers.get('set-cookie').split(';')[0];
+      await save('test-session-cookie', cookie);
+    }
     const response = await fetch(base + '/api/v1/clients/' + target.id, { method: 'PATCH',
-      headers: { 'Content-Type': 'application/json', Origin: base, Cookie: login.headers.get('set-cookie').split(';')[0] }, body: process.argv[4] });
+      headers: { 'Content-Type': 'application/json', Origin: base, Cookie: cookie }, body: process.argv[4] });
     assert.equal(response.status, 200, 'Изменение политики не принято');
     console.log('Политика изменена'); return;
   }

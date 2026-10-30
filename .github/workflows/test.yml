@@ -158,6 +158,8 @@ jobs:
               -v "$PWD/scripts/test-login-overload.cjs:/probe.cjs:ro" --entrypoint node "$image" /probe.cjs
           done
       - name: Dual packet tests в одноразовой сети
+        env:
+          DUAL_DIAGNOSTIC_DIRECTORY: ${{ runner.temp }}/dual-network-diagnostics
         run: node scripts/test-dual-network.cjs vpn-easy-awg:dual-stage7 vpn-easy-wg:dual-stage7
       - name: Проверить зависимости обоих production-образов
         run: python3 scripts/scan-release-images.py vpn-easy-awg:dual-stage7 vpn-easy-wg:dual-stage7
@@ -170,6 +172,7 @@ jobs:
           if-no-files-found: warn
       - name: Host manager, миграция и аварийное восстановление
         env:
+          TEST_DIAGNOSTIC_DIRECTORY: ${{ runner.temp }}/vpnctl-diagnostics
           TEST_AWG_IMAGE: vpn-easy-awg:dual-stage7
           TEST_WG_IMAGE: vpn-easy-wg:dual-stage7
         run: |
@@ -187,6 +190,7 @@ jobs:
           sudo -E python3 scripts/test-vpnctl-install-output-integration.py
       - name: Браузерная проверка через настоящие Home VPN
         env:
+          TEST_DIAGNOSTIC_DIRECTORY: ${{ runner.temp }}/vpnctl-diagnostics
           TEST_AWG_IMAGE: vpn-easy-awg:dual-stage7
           TEST_WG_IMAGE: vpn-easy-wg:dual-stage7
           PLAYWRIGHT_BROWSERS_PATH: ${{ runner.temp }}/playwright-browsers
@@ -209,3 +213,19 @@ jobs:
           path: tested-images
           retention-days: 14
           if-no-files-found: error
+      - name: Подготовить диагностические файлы к сохранению
+        if: failure()
+        run: |
+          for diagnostic_dir in "${{ runner.temp }}/vpnctl-diagnostics" "${{ runner.temp }}/dual-network-diagnostics" "${{ runner.temp }}/vpn-browser-artifacts"; do
+            if [ -d "$diagnostic_dir" ]; then sudo chown -R "$(id -u):$(id -g)" "$diagnostic_dir"; fi
+          done
+      - name: Сохранить диагностику до завершения runner
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: dual-failure-diagnostics
+          path: |
+            ${{ runner.temp }}/vpnctl-diagnostics
+            ${{ runner.temp }}/dual-network-diagnostics
+            ${{ runner.temp }}/vpn-browser-artifacts
+          if-no-files-found: warn

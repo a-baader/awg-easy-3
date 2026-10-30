@@ -1,9 +1,10 @@
 'use strict';
 
 // Все интерфейсы и nftables живут в disposable namespace, общем для двух серверов.
-const { execFileSync } = require('node:child_process');
+const { execFileSync, spawnSync } = require('node:child_process');
 const crypto = require('node:crypto');
 const path = require('node:path');
+const fs = require('node:fs');
 const assert = require('node:assert/strict');
 const prefix = 'vpn-dual-' + crypto.randomBytes(6).toString('hex');
 const network = prefix + '-net';
@@ -15,6 +16,31 @@ const docker = (...args) => execFileSync('docker', args, { encoding: 'utf8', tim
 const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
 const execute = (name, ...args) => docker('exec', name, 'node', '/test.cjs', ...args);
 const anchor = prefix + '-host';
+const redact = value => String(value).replace(/[A-Za-z0-9+/]{43}=/g, '[КЛЮЧ СКРЫТ]');
+function captureDiagnostics() {
+  const directory = process.env.DUAL_DIAGNOSTIC_DIRECTORY;
+  if (!directory) return;
+  fs.mkdirSync(directory, { recursive: true, mode: 0o700 });
+  const records = {};
+  for (const name of [...new Set(containers)]) {
+    records[name] = {};
+    for (const [label, command] of [
+      ['state', ['inspect', '-f', '{{json .State}}', name]],
+      ['processes', ['top', name, '-eo', 'pid,ppid,stat,comm']],
+      ['logs', ['logs', '--timestamps', '--tail', '100', name]],
+      ['addresses', ['exec', name, 'ip', '-j', 'address']],
+      ['routes4', ['exec', name, 'ip', '-j', '-4', 'route', 'show', 'table', 'all']],
+      ['routes6', ['exec', name, 'ip', '-j', '-6', 'route', 'show', 'table', 'all']],
+      ['rules4', ['exec', name, 'ip', '-j', '-4', 'rule']],
+    ]) {
+      const result = spawnSync('docker', command, { encoding: 'utf8', timeout: 10_000 });
+      records[name][label] = redact((result.stdout ?? '') + (result.stderr ?? '')
+        + (result.error ? '\n' + result.error.message : ''));
+    }
+  }
+  fs.writeFileSync(path.join(directory, prefix + '.json'), JSON.stringify(records, null, 2) + '\n', { mode: 0o600 });
+  console.error('Сетевая диагностика сохранена до удаления контейнеров: ' + directory);
+}
 function start(name, kind, mode, { shared = false, volume, args = [] } = {}) {
   containers.push(name);
   const settings = shared ? [] : ['--sysctl', 'net.ipv6.conf.all.disable_ipv6=0', '--sysctl', 'net.ipv4.ip_forward=1', '--sysctl', 'net.ipv6.conf.all.forwarding=1'];
@@ -181,7 +207,11 @@ async function reconnect(name, host, port) {
     await reconnect(peers[stopped][0], `10.${restoredNetwork}.0.1`, restoredPanel);
   }
   console.log(guestCrossOnly ? 'PASS: Home A/B и Guest, меж-VPN запреты IPv4/IPv6 и WAN DNAT.' : 'PASS: AWG/WG Home и Guest, IPv4/IPv6, DNAT, host/Docker, GeoIP fail-closed, отзыв TCP, discovery и независимые restart.');
-})().catch(error => { console.error(String(error.stderr || error.message).replace(/[A-Za-z0-9+/]{43}=/g, '[КЛЮЧ СКРЫТ]').slice(0, 3000)); process.exitCode = 1; }).finally(() => {
+})().catch(error => {
+  console.error(redact(error.stderr || error.message).slice(0, 3000));
+  try { captureDiagnostics(); } catch (diagnosticError) { console.error('Не удалось сохранить сетевую диагностику: ' + diagnosticError.message); }
+  process.exitCode = 1;
+}).finally(() => {
   for (const name of containers.reverse()) { try { docker('rm', '-f', name); } catch {} }
   for (const volume of volumes) { try { docker('volume', 'rm', volume); } catch {} }
   try { docker('network', 'rm', network); } catch {}
