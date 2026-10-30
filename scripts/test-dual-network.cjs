@@ -1,7 +1,7 @@
 'use strict';
 
 // Все интерфейсы и nftables живут в disposable namespace, общем для двух серверов.
-const { execFileSync, spawnSync } = require('node:child_process');
+const { execFileSync, spawnSync, spawn } = require('node:child_process');
 const crypto = require('node:crypto');
 const path = require('node:path');
 const fs = require('node:fs');
@@ -12,11 +12,48 @@ const images = { awg: process.argv[2] || 'vpn-easy-awg:dual-stage4', wg: process
 const guestCrossOnly = process.argv.includes('--guest-cross-only');
 const helper = path.join(__dirname, 'dual-network-helper.cjs');
 const containers = [], volumes = [];
+const captures = [];
+const capturedNames = new Set();
 const docker = (...args) => execFileSync('docker', args, { encoding: 'utf8', timeout: 120000, stdio: ['ignore', 'pipe', 'pipe'] }).trim();
 const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
 const execute = (name, ...args) => docker('exec', name, 'node', '/test.cjs', ...args);
 const anchor = prefix + '-host';
 const redact = value => String(value).replace(/[A-Za-z0-9+/]{43}=/g, '[КЛЮЧ СКРЫТ]');
+async function startPacketCapture(name) {
+  if (process.env.DUAL_CAPTURE_PACKETS !== '1') return;
+  if (capturedNames.has(name)) return;
+  const directory = process.env.DUAL_DIAGNOSTIC_DIRECTORY;
+  if (!directory || process.getuid() !== 0) throw new Error('Для записи пакетов нужны root и DUAL_DIAGNOSTIC_DIRECTORY');
+  fs.mkdirSync(directory, { recursive: true, mode: 0o700 });
+  const file = path.join(directory, name + '.pcap');
+  const log = file + '.log';
+  fs.writeFileSync(log, '', { mode: 0o600 });
+  const pid = docker('inspect', '-f', '{{.State.Pid}}', name);
+  // Записываем заголовки echo/ICMP только тестового namespace, без тела запросов панели.
+  const child = spawn('nsenter', ['-t', pid, '-n', 'tcpdump', '-i', 'any', '-n', '-s', '96',
+    '-U', '-Z', 'root', '-w', file, 'icmp or icmp6 or tcp port 8080'], { stdio: ['ignore', 'ignore', 'pipe'] });
+  child.finished = new Promise(resolve => child.once('close', resolve));
+  captures.push(child);
+  await new Promise((resolve, reject) => {
+    let output = '';
+    const timer = setTimeout(() => reject(new Error('tcpdump не подтвердил начало записи')), 3000);
+    child.once('error', error => { clearTimeout(timer); reject(error); });
+    child.once('exit', code => { clearTimeout(timer); reject(new Error('tcpdump завершился до конца сценария: ' + code)); });
+    child.stderr.on('data', chunk => {
+      fs.appendFileSync(log, chunk);
+      output = (output + chunk.toString()).slice(-4096);
+      if (output.includes('listening on')) { clearTimeout(timer); fs.chmodSync(file, 0o600); capturedNames.add(name); resolve(); }
+    });
+  });
+}
+async function stopPacketCaptures() {
+  for (const child of captures) if (child.exitCode === null) child.kill('SIGINT');
+  await Promise.all(captures.map(async child => {
+    const timer = setTimeout(() => child.kill('SIGKILL'), 2000);
+    await child.finished;
+    clearTimeout(timer);
+  }));
+}
 function captureDiagnostics() {
   const directory = process.env.DUAL_DIAGNOSTIC_DIRECTORY;
   if (!directory) return;
@@ -32,10 +69,22 @@ function captureDiagnostics() {
       ['routes4', ['exec', name, 'ip', '-j', '-4', 'route', 'show', 'table', 'all']],
       ['routes6', ['exec', name, 'ip', '-j', '-6', 'route', 'show', 'table', 'all']],
       ['rules4', ['exec', name, 'ip', '-j', '-4', 'rule']],
+      ['rules6', ['exec', name, 'ip', '-j', '-6', 'rule']],
+      ['nftables', ['exec', name, 'nft', '-j', 'list', 'ruleset']],
+      ['tcp_metrics', ['exec', name, 'ip', 'tcp_metrics', 'show']],
     ]) {
       const result = spawnSync('docker', command, { encoding: 'utf8', timeout: 10_000 });
       records[name][label] = redact((result.stdout ?? '') + (result.stderr ?? '')
         + (result.error ? '\n' + result.error.message : ''));
+    }
+    const backend = /-awg(?:-peer-\d+)?$/.test(name) ? 'awg' : /-wg(?:-peer-\d+)?$/.test(name) ? 'wg' : null;
+    if (backend) {
+      const device = name.includes('-peer-') ? 'peer0' : backend + '0';
+      const result = spawnSync('docker', ['exec', name, backend, 'show', device, 'allowed-ips'], { encoding: 'utf8', timeout: 10_000 });
+      records[name].allowed_ips = redact((result.stdout ?? '') + (result.stderr ?? ''));
+      const program = "const fs=require('node:fs');const s=JSON.parse(fs.readFileSync('/data/state.json'));console.log(JSON.stringify(s.clients.map(({id,name,enabled,ipv4Enabled,ipv6Enabled,geoPolicy})=>({id,name,enabled,ipv4Enabled,ipv6Enabled,geoPolicy}))))";
+      const state = spawnSync('docker', ['exec', name, 'node', '-e', program], { encoding: 'utf8', timeout: 10_000 });
+      records[name].permissions = redact((state.stdout ?? '') + (state.stderr ?? ''));
     }
   }
   fs.writeFileSync(path.join(directory, prefix + '.json'), JSON.stringify(records, null, 2) + '\n', { mode: 0o600 });
@@ -113,6 +162,7 @@ async function reconnect(name, host, port) {
   const hairpin = 'add table ip test_hairpin\nadd chain ip test_hairpin prerouting { type nat hook prerouting priority dstnat; policy accept; }\nadd rule ip test_hairpin prerouting ip daddr 198.51.100.10 tcp dport 18081 dnat to 10.9.0.1:51825\nadd table ip6 test_hairpin6\nadd chain ip6 test_hairpin6 prerouting { type nat hook prerouting priority dstnat; policy accept; }\nadd rule ip6 test_hairpin6 prerouting ip6 daddr 2001:db8:feed::10 tcp dport 18081 dnat to [fd42:9::1]:51825\n';
   execFileSync('docker', ['exec', '-i', anchor, 'nft', '-f', '-'], { input: hairpin });
   for (const [kind, n, panel] of [['awg', 8, 51821], ['wg', 9, 51825]]) {
+    for (const name of [anchor, ...peers[kind]]) await startPacketCapture(name);
     const [home, second, guest] = peers[kind];
     check(home, `10.${n}.0.1`, panel, 'allow'); check(home, `fd42:${n}::1`, panel, 'allow');
     for (const peer of [home, guest]) {
@@ -161,7 +211,10 @@ async function reconnect(name, host, port) {
     }
     docker('exec', servers[kind], 'node', '/app/healthcheck.js');
     if (guestCrossOnly) continue;
-    const policy = changes => execute(servers[kind], 'policy', 'home-admin', JSON.stringify(changes));
+    const policy = changes => {
+      if (process.env.DUAL_CAPTURE_PACKETS === '1') console.log(new Date().toISOString() + ' Политика ' + kind + ': ' + JSON.stringify(changes));
+      return execute(servers[kind], 'policy', 'home-admin', JSON.stringify(changes));
+    };
     policy({ ipv6Enabled: false });
     check(home, '2001:4860:dead::34', 8080, 'block'); check(home, '93.184.216.34', 8080, 'allow');
     policy({ ipv6Enabled: true, ipv4Enabled: false });
@@ -211,7 +264,9 @@ async function reconnect(name, host, port) {
   console.error(redact(error.stderr || error.message).slice(0, 3000));
   try { captureDiagnostics(); } catch (diagnosticError) { console.error('Не удалось сохранить сетевую диагностику: ' + diagnosticError.message); }
   process.exitCode = 1;
-}).finally(() => {
+}).finally(async () => {
+  try { await stopPacketCaptures(); }
+  catch (error) { console.error('Не удалось завершить запись пакетов: ' + error.message); process.exitCode = 1; }
   for (const name of containers.reverse()) { try { docker('rm', '-f', name); } catch {} }
   for (const volume of volumes) { try { docker('volume', 'rm', volume); } catch {} }
   try { docker('network', 'rm', network); } catch {}

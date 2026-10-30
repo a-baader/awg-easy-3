@@ -72,3 +72,17 @@ python3 scripts/scan-release-images.py vpn-easy-awg:dual-dev vpn-easy-wg:dual-de
 Скрипт проверяет SHA-256 закреплённого Trivy, сохраняет JSON в security-report
 и возвращает ошибку при HIGH/CRITICAL. Workflow Security раз в неделю проверяет
 точные digest последнего stable-релиза и сохраняет отчёты, включая неуспешные.
+
+Для диагностики сетевого теста на Linux можно записать заголовки пакетов в
+его одноразовых network namespace. Нужны `tcpdump`, `nsenter` и root:
+
+```bash
+sudo -E env DUAL_CAPTURE_PACKETS=1 DUAL_DIAGNOSTIC_DIRECTORY=/tmp/vpn-dual-diagnostics \
+  "$(command -v node)" scripts/test-dual-network.cjs vpn-easy-awg:dual-dev vpn-easy-wg:dual-dev
+```
+
+Таймауты и проверки разрешений сохраняются. При отказе до удаления контейнеров
+записываются процессы, интерфейсы, маршруты, nftables, AllowedIPs и разрешения
+клиентов без ключей/паролей. PCAP ограничен заголовками ICMP и тестового echo
+на TCP 8080; порты панелей не захватываются как TCP-трафик. В CI диагностические
+файлы сохраняются отдельным artifact, в том числе при успешном сценарии.

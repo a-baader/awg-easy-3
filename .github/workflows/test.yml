@@ -160,7 +160,10 @@ jobs:
       - name: Dual packet tests в одноразовой сети
         env:
           DUAL_DIAGNOSTIC_DIRECTORY: ${{ runner.temp }}/dual-network-diagnostics
-        run: node scripts/test-dual-network.cjs vpn-easy-awg:dual-stage7 vpn-easy-wg:dual-stage7
+          DUAL_CAPTURE_PACKETS: '1'
+        run: |
+          command -v tcpdump >/dev/null || { sudo apt-get update && sudo apt-get install -y tcpdump; }
+          sudo -E "$(command -v node)" scripts/test-dual-network.cjs vpn-easy-awg:dual-stage7 vpn-easy-wg:dual-stage7
       - name: Проверить зависимости обоих production-образов
         run: python3 scripts/scan-release-images.py vpn-easy-awg:dual-stage7 vpn-easy-wg:dual-stage7
       - name: Сохранить результаты сканирования образов
@@ -214,16 +217,16 @@ jobs:
           retention-days: 14
           if-no-files-found: error
       - name: Подготовить диагностические файлы к сохранению
-        if: failure()
+        if: always()
         run: |
           for diagnostic_dir in "${{ runner.temp }}/vpnctl-diagnostics" "${{ runner.temp }}/dual-network-diagnostics" "${{ runner.temp }}/vpn-browser-artifacts"; do
             if [ -d "$diagnostic_dir" ]; then sudo chown -R "$(id -u):$(id -g)" "$diagnostic_dir"; fi
           done
       - name: Сохранить диагностику до завершения runner
-        if: failure()
+        if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: dual-failure-diagnostics
+          name: dual-network-diagnostics
           path: |
             ${{ runner.temp }}/vpnctl-diagnostics
             ${{ runner.temp }}/dual-network-diagnostics
