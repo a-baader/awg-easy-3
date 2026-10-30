@@ -113,4 +113,3 @@ class TransactionManager:
                 matches=any(info.get('Image')==item['image'] and source==item['data_directory'] for item in allowed if item['container']==container)
                 if not matches or info.get('HostConfig',{}).get('NetworkMode')!='host' or labels.get('com.docker.compose.service')!=name+'-easy':
                     raise ManagerError('Восстановление остановлено: владение контейнером не подтверждено: '+container,73)
-

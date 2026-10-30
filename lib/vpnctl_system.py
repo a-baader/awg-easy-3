@@ -83,4 +83,3 @@ class SystemIntegration:
             original=Path(legacy['directory'])/'awg-easy-3' if legacy else None
             if legacy and filename==self.system_root/'usr/local/sbin/awg-easy-3' and original.is_file() and not filename.is_symlink() and filename.read_bytes()==original.read_bytes():continue
             raise ManagerError('Системный путь уже занят; чужой файл не изменён: '+str(filename),73)
-
