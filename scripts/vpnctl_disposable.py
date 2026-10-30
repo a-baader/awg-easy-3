@@ -15,6 +15,7 @@ PROJECT=Path(__file__).resolve().parents[1]
 sys.path.insert(0,str(PROJECT/'lib'))
 from vpnctl_manager import Manager,build_parser
 from vpnctl_common import execute,atomic_json,ManagerError
+from vpnctl_common import redact
 prefix='vpnctl-real-'+uuid.uuid4().hex[:10]
 anchor=prefix+'-host'
 root=Path(tempfile.mkdtemp(prefix=prefix+'-'));root.chmod(0o700)
@@ -43,6 +44,16 @@ class IsolatedManager(Manager):
             return json.dumps(info)
         return result
     def legacy(self):return None
+    def health(self,item):
+        try:return super().health(item)
+        except Exception:
+            diagnostics=os.environ.get('TEST_DIAGNOSTIC_DIRECTORY')
+            if diagnostics:
+                directory=Path(diagnostics);directory.mkdir(parents=True,exist_ok=True)
+                info=self.inspect_container(item['container']) or {}
+                logs=execute(['docker','logs','--tail','100',item['container']],check=False,merge_stderr=True) or ''
+                (directory/(item['container']+'-health.json')).write_text(redact(json.dumps({'state':info.get('State'),'logs':logs},ensure_ascii=False,indent=2)))
+            raise
     def plan_install(self,args):
         value=super().plan_install(args)
         for name,item in value['components'].items():item['container']=prefix+'-'+name

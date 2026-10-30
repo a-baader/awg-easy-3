@@ -1,16 +1,10 @@
 'use strict';
 
-const { createVpnLink } = require('./AmneziaVpnLink');
-const { buildClientRoutes } = require('./ClientRoutes');
-const { buildDnsPolicy } = require('./DnsPolicy');
 const { renderNftablesPolicy } = require('./NftablesPolicy');
 const { clientTraffic } = require('./ClientTraffic');
 const { createBackend, backendKind } = require('./VpnBackend');
 
-const peerAddresses = (client, serverHasIPv6) => [
-  `${client.address4}/32`,
-  ...(serverHasIPv6 && client.address6 ? [`${client.address6}/128`] : []),
-];
+const { buildClientArtifact, peerAddresses } = require('./ClientArtifact');
 
 const buildAwgArtifacts = ({ server, clients, geoDatabase = {}, isolation = false }) => {
   if (!server || typeof server !== 'object' || Array.isArray(server)) {
@@ -70,44 +64,8 @@ const buildAwgArtifacts = ({ server, clients, geoDatabase = {}, isolation = fals
       : [],
   });
 
-  const clientArtifacts = Object.fromEntries(clients.map((client) => {
-    const routes = buildClientRoutes({ serverHasIPv6 });
-    const dnsPolicy = buildDnsPolicy({ serverHasIPv6 });
-    const addresses = peerAddresses(client, serverHasIPv6);
-    const nativeConfig = backend.renderClientConfig({
-      privateKey: client.privateKey,
-      addresses,
-      dnsPolicy,
-      mtu: client.mtu ?? 1280,
-      profile: server.profile,
-      serverPublicKey: server.publicKey,
-      presharedKey: client.presharedKey,
-      allowedIps: routes.allowedIps,
-      persistentKeepalive: client.persistentKeepalive ?? (backend.kind === 'wireguard' ? 25 : '25-35'),
-      endpointHost: server.endpointHost,
-      endpointPort: server.endpointPort ?? server.listenPort,
-    });
-    const vpnLink = backend.kind === 'wireguard' ? null : createVpnLink({
-      description: client.name,
-      hostName: server.endpointHost,
-      port: server.endpointPort ?? server.listenPort,
-      dns: dnsPolicy.amneziaDns,
-      profile: server.profile,
-      client: {
-        addresses,
-        privateKey: client.privateKey,
-        publicKey: client.publicKey,
-        serverPublicKey: server.publicKey,
-        presharedKey: client.presharedKey,
-        allowedIps: routes.allowedIps,
-        persistentKeepalive: client.persistentKeepalive ?? '25-35',
-        mtu: client.mtu ?? 1280,
-        nativeConfig,
-      },
-    });
-
-    return [client.id, Object.freeze({ dnsPolicy, nativeConfig, routes, vpnLink })];
-  }));
+  const clientArtifacts = Object.fromEntries(clients.map(client =>
+    [client.id, buildClientArtifact({ server, client, backend })]));
 
   return Object.freeze({
     clientArtifacts: Object.freeze(clientArtifacts),

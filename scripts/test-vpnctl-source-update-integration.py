@@ -78,7 +78,10 @@ try:
         config=manager.config();source=Path(result['sources_directory'])
         assert source.is_dir() and source!=PROJECT and (PROJECT/'vpnctl').is_file()
         assert config['project']==str(source) and config['source_commit']==revision
-        assert sentinel.read_text().strip()==str(source)
+        protected=Path(sentinel.read_text().strip())
+        assert protected.parent==manager.system_root/'usr/local/lib/wg-dual-easy/sources'
+        assert (protected/'VERSION').read_text().strip()==TEST_VERSION
+        assert (protected/'_vpnctl_snapshot.json').is_file()
         assert execute(['git','-C',str(source),'rev-parse','HEAD']).strip()==revision
         for name,item in config['components'].items():
             assert item['image']==release['images'][name] and item['version']==TEST_VERSION

@@ -113,16 +113,25 @@ async function reconnect(name, host, port) {
     check(wan, `10.${n}.0.1`, panel, 'block');
     check(wan, `fd42:${n}::1`, panel, 'block');
     check(wan, '198.51.100.10', 18081, 'block'); check(wan, '2001:db8:feed::10', 18081, 'block');
-    for (const udpPort of [5353, 1900]) {
-      const tag = kind + '-' + udpPort;
-      execute(home, 'discover-send', tag, String(udpPort)); await wait(150);
+    for (const udpPort of [5353, 1900]) for (const multicast of [true, false]) {
+      const destination = multicast ? (udpPort === 5353 ? '224.0.0.251' : '239.255.255.250') : `10.${n}.0.1`;
+      const tag = kind + '-' + udpPort + '-' + (multicast ? 'multicast' : 'unicast');
+      execute(home, 'discover-send', tag, String(udpPort), `10.${n}.0.2`, destination); await wait(150);
       assert(Number(execute(second, 'discover-count', tag)) > 0, 'Нет Home discovery fan-out');
       assert.equal(Number(execute(guest, 'discover-count', tag)), 0);
       assert.equal(Number(execute(peers[kind === 'awg' ? 'wg' : 'awg'][0], 'discover-count', tag)), 0);
       assert.equal(Number(execute(wan, 'discover-count', tag)), 0);
       const guestTag = tag + '-guest';
-      execute(guest, 'discover-send', guestTag, String(udpPort), `10.${n}.0.4`); await wait(150);
+      execute(guest, 'discover-send', guestTag, String(udpPort), `10.${n}.0.4`, destination); await wait(150);
       for (const receiver of [home, second, wan, peers[kind === 'awg' ? 'wg' : 'awg'][0]]) assert.equal(Number(execute(receiver, 'discover-count', guestTag)), 0);
+      for (const [sender, source, target, label] of [
+        [home, `10.${n}.0.2`, `10.${other}.0.1`, 'foreign-vpn'],
+        [wan, wanNet.IPAddress, `10.${n}.0.1`, 'wan'],
+      ]) {
+        const blockedTag = tag + '-' + label;
+        execute(sender, 'discover-send', blockedTag, String(udpPort), source, target); await wait(150);
+        for (const receiver of [...peers.awg, ...peers.wg, wan]) assert.equal(Number(execute(receiver, 'discover-count', blockedTag)), 0);
+      }
     }
     docker('exec', servers[kind], 'node', '/app/healthcheck.js');
     if (guestCrossOnly) continue;

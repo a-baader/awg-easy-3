@@ -1,7 +1,15 @@
 # Архитектура wg-dual-easy
 
-Статус: этапы 0–5 реализованы; миграция оригинального 0.1.6 и recovery после SIGKILL проверены. Расширенная E2E-матрица и CI добавляются на этапе 7. Reboot отдельной VM и полевая проверка клиентов остаются вне выполненных проверок; см. TEST_REPORT.
-Основание: `TZ_VPN_Easy_Dual_Agent.md`, исходный SHA указан в BASELINE_AUDIT.
+Текущий протокол и ограничения: [TEST_REPORT](TEST_REPORT.md). Reboot отдельной
+VM и полевая проверка физических клиентов остаются отложенными.
+Историческое основание миграции: [аудит исходной версии](archive/review-baseline/BASELINE_AUDIT.md).
+
+Host manager разделён на orchestration/CLI (`vpnctl_manager.py`), транзакции
+(`vpnctl_transactions.py`), системную интеграцию (`vpnctl_system.py`), архивы,
+защищённые исходники, retention и вывод. Контракты plan/journal описаны в
+`vpnctl_types.py`; все операции сохраняют общую блокировку и ownership-проверки.
+Progress-классы используют один renderer. Shell fallback до установки Python
+сохранён и проверяется вместе с Python-контрактом параметров.
 
 ## Компоненты и потоки
 

@@ -1,11 +1,11 @@
-"""Проверка stable-релиза после загрузки; сетевые данные никогда не исполняются."""
+"""Проверка и установка доверенного stable-релиза после загрузки ОС."""
 import hashlib
 import json
 import re
 import shutil
 from urllib.request import Request, urlopen
 from urllib.error import HTTPError
-from vpnctl_common import ManagerError, atomic_json
+from vpnctl_common import ManagerError
 
 REPOSITORY='a-baader/wg-dual-easy'
 
@@ -137,19 +137,7 @@ def fetch_manifest(version,fetch=download):
     return value
 
 def run(manager):
-    config=manager.config()
-    if not config.get('auto_check',False):return {'skipped':'проверка отключена'}
-    try:
-        current=min((item.get('version',config['version']) for item in config['components'].values()),key=stable_version)
-        release=fetch_release(current)
-    except Exception as error:
-        # Ответ GitHub и сетевые ошибки не должны попадать в журнал как traceback.
-        raise ManagerError('Не удалось проверить stable-релиз; установленная версия сохранена',69) from error
-    if release is None:return {'updated':False,'reason':'нового стабильного релиза нет'}
-    selected=[name for name,item in config['components'].items()
-        if stable_version(item.get('version',config['version']))<stable_version(release['version'])]
-    if not selected:return {'updated':False,'reason':'компоненты уже обновлены'}
-    path=manager.root/'stable-release.json';atomic_json(path,release)
+    if not manager.config().get('auto_check',False):return {'skipped':'проверка отключена'}
+    # Тот же orchestrator, что у vpnctl update: один release для CLI и образов.
     from types import SimpleNamespace
-    component='all' if len(selected)==len(config['components']) else selected[0]
-    return manager.update(SimpleNamespace(component=component,manifest=str(path),dry_run=False))
+    return manager.update(SimpleNamespace(component='all',manifest=None,dry_run=False))

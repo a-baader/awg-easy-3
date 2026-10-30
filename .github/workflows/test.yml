@@ -5,7 +5,9 @@ on:
     branches:
       - master
       - feature/vpn-easy-dual
+      - 'release/**'
   pull_request:
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -17,10 +19,10 @@ jobs:
       run:
         working-directory: src
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
-          node-version: 22.18.0
+          node-version: 22.23.4
       - run: corepack enable
       - run: corepack prepare pnpm@11.19.0 --activate
       - run: pnpm install --frozen-lockfile
@@ -46,6 +48,15 @@ jobs:
           python3 ../scripts/test-vpnctl-removal-progress.py
           python3 ../scripts/test-vpnctl-output.py
           python3 ../scripts/test-vpnctl-color.py
+          python3 ../scripts/test-vpnctl-sources.py
+          python3 ../scripts/test-vpnctl-readiness.py
+          python3 ../scripts/test-vpnctl-contract-consistency.py
+          python3 ../scripts/test-vpnctl-backup.py
+          python3 ../scripts/test-vpnctl-restore-trust.py
+          python3 ../scripts/test-vpnctl-storage.py
+          python3 ../scripts/test-release-security.py
+          python3 ../scripts/sync-doc-versions.py --check
+          python3 ../scripts/check-doc-links.py
           python3 ../scripts/test-dual-preflight.py
           python3 -m py_compile ../lib/vpnctl_manager.py ../lib/vpnctl_backup.py ../lib/vpnctl_common.py
 
@@ -53,17 +64,18 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 25
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
-          node-version: 22.18.0
-      - uses: docker/setup-buildx-action@v3
-      - uses: docker/build-push-action@v6
+          node-version: 22.23.4
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+      - uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
         with:
           context: .
           platforms: linux/amd64
           push: false
           load: true
+          target: awg-test
           tags: awg-easy-3:test
       - name: Smoke-test the built image without host network privileges
         run: |
@@ -83,8 +95,11 @@ jobs:
           docker run --rm --network none --entrypoint node awg-easy-3:test \
             /app/test/helpers/ip-family-policies.js | \
             sudo unshare --net python3 src/test/helpers/verify-ip-families-linux.py
+          docker run --rm --network none --entrypoint node awg-easy-3:test \
+            /app/test/helpers/discovery-policies.js | \
+            sudo unshare --net python3 src/test/helpers/verify-discovery-linux.py
       - name: Build pinned upstream regression-test environment
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
         with:
           context: .
           target: awg-go
@@ -103,14 +118,14 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 35
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           fetch-depth: 0
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
-          node-version: 22.18.0
-      - uses: docker/setup-buildx-action@v3
-      - uses: docker/build-push-action@v6
+          node-version: 22.23.4
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+      - uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
         with:
           context: .
           target: awg
@@ -118,7 +133,7 @@ jobs:
           push: false
           load: true
           tags: vpn-easy-awg:dual-stage7
-      - uses: docker/build-push-action@v6
+      - uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
         with:
           context: .
           target: wg
@@ -128,13 +143,31 @@ jobs:
           tags: vpn-easy-wg:dual-stage7
       - name: Проверка стандартных WG tools и Compose
         run: |
+          docker run --rm --network none --entrypoint sh vpn-easy-awg:dual-stage7 -c 'test ! -e /app/test'
+          docker run --rm --network none --entrypoint sh vpn-easy-wg:dual-stage7 -c 'test ! -e /app/test'
           docker run --rm --network none --entrypoint wg vpn-easy-wg:dual-stage7 --version
           docker run --rm --network none --entrypoint wireguard-go vpn-easy-wg:dual-stage7 --version
           docker run --rm --network none --entrypoint sh vpn-easy-wg:dual-stage7 -c '! command -v awg && ! command -v amneziawg-go'
           docker compose -f docker-compose.dual.yml config -q
+          python3 scripts/test-compose-layout.py
           sudo modprobe tun
+      - name: Проверить login в минимальных production-образах
+        run: |
+          for image in vpn-easy-awg:dual-stage7 vpn-easy-wg:dual-stage7; do
+            docker run --rm --network none --cap-drop ALL --pids-limit 256 --cpus 2 --memory 1g --memory-swap 1g \
+              -v "$PWD/scripts/test-login-overload.cjs:/probe.cjs:ro" --entrypoint node "$image" /probe.cjs
+          done
       - name: Dual packet tests в одноразовой сети
         run: node scripts/test-dual-network.cjs vpn-easy-awg:dual-stage7 vpn-easy-wg:dual-stage7
+      - name: Проверить зависимости обоих production-образов
+        run: python3 scripts/scan-release-images.py vpn-easy-awg:dual-stage7 vpn-easy-wg:dual-stage7
+      - name: Сохранить результаты сканирования образов
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: candidate-security-report
+          path: security-report
+          if-no-files-found: warn
       - name: Host manager, миграция и аварийное восстановление
         env:
           TEST_AWG_IMAGE: vpn-easy-awg:dual-stage7
@@ -142,6 +175,8 @@ jobs:
         run: |
           python3 scripts/test-dependency-bootstrap.py
           sudo -E python3 scripts/test-vpnctl-integration.py
+          sudo -E python3 scripts/test-vpnctl-engine-recovery.py
+          sudo -E python3 scripts/test-vpnctl-sources-integration.py
           sudo -E python3 scripts/test-vpnctl-migration.py
           sudo -E python3 scripts/test-vpnctl-recovery.py
           sudo -E python3 scripts/test-vpnctl-packet-probes.py
@@ -162,7 +197,15 @@ jobs:
           export BROWSER_NODE="$(command -v node)"
           sudo -E python3 scripts/test-vpnctl-browser.py
           sudo chown -R "$(id -u):$(id -g)" "$BROWSER_ARTIFACT_DIR"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: browser-report
           path: ${{ runner.temp }}/vpn-browser-artifacts
+      - name: Сохранить те же образы, которые прошли полный CI
+        run: python3 scripts/release-tested-images.py save --directory tested-images --commit "$GITHUB_SHA"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: tested-images
+          path: tested-images
+          retention-days: 14
+          if-no-files-found: error

@@ -32,6 +32,7 @@ for argument in "$@"; do
   client          Управлять клиентами: list, add, disable, enable, remove, export
   recover         Восстановиться после прерванной операции
   auto-update     Управлять обновлением stable: enable, disable, status, run
+  storage         Показать хранение backup/кешей и подтвердить очистку
 Компоненты: all — оба сервиса, awg — AmneziaWG, wg — WireGuard.
 По умолчанию — читаемый вывод и JSON-файл в /root; --json — JSON в stdout.
 После установки Python подробная справка: vpnctl КОМАНДА --help.

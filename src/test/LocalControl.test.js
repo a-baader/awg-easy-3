@@ -77,7 +77,7 @@ test('режим обслуживания дожидается записи и �
   assert.equal(events.at(-1), 'после обслуживания');
 });
 
-test('вход со старым паролем не получает действующую сессию после конкурентного reset', async t => {
+test('вход со старым паролем не получает действующую сессию после конкурентного reset', { timeout: 3000 }, async t => {
   const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'dual-auth-race-'));
   t.after(() => fs.rm(directory, { recursive: true, force: true }));
   const store = new StateStore(path.join(directory, 'state.json'));
@@ -89,12 +89,11 @@ test('вход со старым паролем не получает дейст
   const passwords = new PasswordManager({ store, compare: async () => { entered(); await new Promise(resolve => { release = resolve; }); return true; }, hash: async () => 'new-hash' });
   const sessions = new SessionManager({ store });
   const service = new ApiService({ store, passwordManager: passwords, sessionManager: sessions, clientManager: { createClient() {} } });
-  const login = service.login('old-test-password');
+  const login = assert.rejects(service.login('old-test-password'), error => error.statusCode === 401);
   await comparing;
-  const reset = passwords.resetPassword('new-test-password-123');
+  // reset должен завершиться, пока bcrypt ещё работает: общей очереди нет.
+  await passwords.resetPassword('new-test-password-123');
   release();
-  const result = await login; await reset;
-  const token = result.cookie.split(';')[0].split('=')[1];
-  assert.equal(await sessions.verify(token), false);
+  await login;
   assert.equal((await store.load()).auth.passwordHash, 'new-hash');
 });

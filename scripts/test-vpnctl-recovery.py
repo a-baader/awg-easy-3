@@ -77,6 +77,8 @@ try:
         with global_lock(root/'global.lock',root/'legacy.lock',recovery_journal=manager.journal):
             manager.rollback(journal)
         assert not manager.journal.exists() and not (root/'legacy.lock').exists()
+        assert not list(root.rglob('.failed-*')), 'После recover остались временные копии с ключами'
+        assert not list(root.rglob('.before-restore-*')), 'После recover остались старые данные restore'
         cfg=manager.config()
         for name,item in cfg['components'].items():
             assert (Path(item['data_directory'])/'state.json').read_bytes()==states[name],'Не совпало восстановленное состояние'
@@ -101,6 +103,8 @@ try:
     assert (Path(wg['data_directory'])/'state.json').read_bytes()==before
     assert manager.rpc(wg,'diagnose')['panel'] and manager.rpc(cfg['components']['awg'],'diagnose')['panel']
     assert not manager.journal.exists()
+    assert not list(root.rglob('.failed-*')), 'После rollback restore остались временные ключи'
+    assert not list(root.rglob('.before-restore-*')), 'После rollback restore остались старые ключи'
     passed('SIGKILL после замены каталога restore: подтверждённые до restore данные восстановлены, обе панели работают')
     print('SUCCESS: recovery до snapshot, после первого компонента, после commit и при restore',flush=True)
 finally:

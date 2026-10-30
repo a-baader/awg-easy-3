@@ -6,7 +6,7 @@
 > [Описание выпуска](../../releases/v0.2.0-rc.2.md). Два контейнера AWG/WG и единый host CLI.
 > Для установки используйте [INSTALL_DUAL.ru.md](../../INSTALL_DUAL.ru.md),
 > для сборки — [BUILD.md](../../BUILD.md), для команд — [CLI.ru.md](../../CLI.ru.md).
-> Состояние приёмки и непроверенные сценарии — [TEST_REPORT.md](../../TEST_REPORT.md).
+> Состояние приёмки и непроверенные сценарии — [TEST_REPORT.md](../review-baseline/TEST_REPORT.v0.2.3.md).
 > Описание ниже относится к исходному выпуску AWG-Easy 3 0.1.6.
 
 
@@ -122,10 +122,10 @@ Estos perfiles requieren un cliente AWG 3.x; WireGuard convencional y clientes A
 
 **AmneziaVPN 5.0.2.1 en Android:** la prueba comparativa en Honor 50 mostró un tiempo de espera al abrir el panel IPv6, mientras que el mismo perfil funcionó con AmneziaWG. Su [procesamiento de rutas Android](https://github.com/amnezia-vpn/amnezia-client/blob/5.0.2.1/client/android/protocolApi/src/main/kotlin/ProtocolConfig.kt) sustituye `::/0` por `2000::/3`, excluyendo la dirección ULA interna incluso en modo Todos los sitios. Use el panel IPv4 o la alternativa Android verificada. No se generaliza a todas las versiones/plataformas. Internet, DNS, servicios Home y descubrimiento requieren pruebas independientes.
 
-Pruebas de campo anteriores, hasta **0.1.3** inclusive. Añade permisos IPv4/IPv6 por cliente y Ajustes de acceso plegables. Además de Ubuntu/systemd, ya se probaron la instalación, migración y reinicios en un VPS real con Alpine/OpenRC. Los últimos cambios de interfaz se probaron localmente tras eliminar el VPS. Consulte las [notas de la versión](../../releases/v0.1.3.md) y el [informe de Alpine (en ruso)](../../VPS_TEST_2026-08-31.ru.md).
+Pruebas de campo anteriores, hasta **0.1.3** inclusive. Añade permisos IPv4/IPv6 por cliente y Ajustes de acceso plegables. Además de Ubuntu/systemd, ya se probaron la instalación, migración y reinicios en un VPS real con Alpine/OpenRC. Los últimos cambios de interfaz se probaron localmente tras eliminar el VPS. Consulte las [notas de la versión](../../releases/v0.1.3.md) y el [informe de Alpine (en ruso)](../review-baseline/VPS_TEST_2026-08-31.ru.md).
 
 AWG 3.1, Docker, la importación en AmneziaVPN para Android, IPv4/IPv6, el aislamiento Home/Guest y la revocación de perfiles ya se validaron en un VPS. La retransmisión Home del servidor y la reescritura de direcciones SSDP también se validaron entre dos peers reales; la visibilidad final depende del soporte multicast de la aplicación cliente sobre la interfaz VPN.
 
 ## Licencia y atribución
 
-El material adaptado heredado se distribuye bajo **CC BY-NC-SA 4.0**. Consulte [LICENSE](../../../LICENSE), [NOTICE](../../../NOTICE) y [docs/ARCHITECTURE.md](../../ARCHITECTURE.md). Este proyecto no está afiliado ni respaldado por AmneziaVPN.
+El material adaptado heredado se distribuye bajo **CC BY-NC-SA 4.0**. Consulte [LICENSE](../../../LICENSE), [NOTICE](../../../NOTICE) y [docs/ARCHITECTURE.md](../review-baseline/ARCHITECTURE.md). Este proyecto no está afiliado ni respaldado por AmneziaVPN.

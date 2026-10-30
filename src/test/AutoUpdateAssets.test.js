@@ -19,7 +19,9 @@ test('release metadata stays aligned across application, state and image', () =>
   const stateVersion = fs.readFileSync(path.join(root, 'STATE_VERSION'), 'utf8').trim();
   const packageJson = JSON.parse(fs.readFileSync(path.join(root, 'src', 'package.json'), 'utf8'));
   const compose = fs.readFileSync(path.join(root, 'docker-compose.dual.yml'), 'utf8');
-  const legacy = fs.readFileSync(path.join(root, 'docker-compose.yml'), 'utf8');
+  const legacy = fs.readFileSync(path.join(root, 'legacy', 'docker-compose.yml'), 'utf8');
+  const defaultCompose = fs.readFileSync(path.join(root, 'docker-compose.yml'), 'utf8');
+  assert.match(defaultCompose, /profiles: \[legacy\]/);
   const store = fs.readFileSync(path.join(root, 'src', 'lib', 'StateStore.js'), 'utf8');
   assert.equal(version, packageJson.version);
   for (const backend of ['awg', 'wg']) assert.ok(compose.includes(`ghcr.io/a-baader/wg-dual-easy-${backend}:${version}`));
@@ -28,13 +30,13 @@ test('release metadata stays aligned across application, state and image', () =>
   const workflow = fs.readFileSync(path.join(root, '.github', 'workflows', 'docker-publish.yml'), 'utf8');
   assert.match(workflow, /Verify release metadata/);
   assert.match(workflow, /GITHUB_REF_NAME.*v\$version/);
-  assert.match(workflow, /latest=false/);
-  assert.match(workflow, /type=raw,value=latest,enable=.*is_stable/);
-  assert.ok(workflow.indexOf('pnpm test') < workflow.indexOf('Build and push Docker image'));
+  assert.match(workflow, /--name tested-images/);
+  assert.match(workflow, /release-tested-images\.py publish/);
+  assert.doesNotMatch(workflow, /docker\/build-push-action|--clobber/);
   assert.match(workflow, /needs: build-and-push/);
-  assert.match(workflow, /--verify-tag --prerelease --latest=false/);
-  assert.match(workflow, /--verify-tag --latest \\/);
-  assert.match(workflow, /test "\$existing" = "\$prerelease"/);
+  assert.ok(workflow.indexOf('--verify-tag --draft') < workflow.indexOf('gh release upload'));
+  assert.ok(workflow.indexOf('gh release upload') < workflow.indexOf('--draft=false'));
+  assert.match(workflow, /promote-stable-release\.py/);
   assert.ok(fs.existsSync(path.join(root, 'docs', 'releases', `v${version}.md`)));
 });
 

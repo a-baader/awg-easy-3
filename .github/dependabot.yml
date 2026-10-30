@@ -1,7 +1,5 @@
-# Dependency updates are proposed as PRs, never merged automatically.
-# pnpm 11 updates remain manual until Dependabot supports our package manager:
-# https://github.com/dependabot/dependabot-core/issues/14794
-# Do not add docker-compose: the application's own image follows VERSION.
+# Обновления предлагаются через PR без автоматического merge.
+# pnpm 11 поддерживается Dependabot; Docker Compose следует VERSION проекта.
 
 version: 2
 updates:
@@ -17,6 +15,18 @@ updates:
 
   - package-ecosystem: "docker"
     directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 3
+
+  - package-ecosystem: "npm"
+    directory: "/scripts/browser"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 3
+
+  - package-ecosystem: "npm"
+    directory: "/src"
     schedule:
       interval: "weekly"
     open-pull-requests-limit: 3

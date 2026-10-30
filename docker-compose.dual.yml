@@ -3,7 +3,12 @@ name: vpn-easy-dual
 x-runtime: &runtime
   restart: unless-stopped
   network_mode: host
+  cap_drop: [ALL]
   cap_add: [NET_ADMIN]
+  pids_limit: 256
+  cpus: 2.0
+  mem_limit: 1g
+  memswap_limit: 1g
   devices: [/dev/net/tun:/dev/net/tun]
   read_only: true
   tmpfs:
@@ -15,7 +20,7 @@ x-runtime: &runtime
 services:
   awg-easy:
     <<: *runtime
-    image: ${AWG_IMAGE:-ghcr.io/a-baader/wg-dual-easy-awg:0.2.3}
+    image: ${AWG_IMAGE:-ghcr.io/a-baader/wg-dual-easy-awg:0.2.4}
     container_name: awg-easy-3
     build:
       context: .
@@ -31,7 +36,7 @@ services:
       AWG_LANG: ${VPN_LANG:-en}
   wg-easy:
     <<: *runtime
-    image: ${WG_IMAGE:-ghcr.io/a-baader/wg-dual-easy-wg:0.2.3}
+    image: ${WG_IMAGE:-ghcr.io/a-baader/wg-dual-easy-wg:0.2.4}
     container_name: wg-easy-dual
     build:
       context: .

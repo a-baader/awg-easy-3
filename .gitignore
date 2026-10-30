@@ -11,9 +11,15 @@
 .env.*
 /data/
 /data-wg/
+/legacy/data/
+/*.conf
+/*.vpn-url
+/*.tar.gz
 /backups/
 /.vpnctl/
 *.key
 __pycache__/
 *.pyc
 node_modules/
+# Локальные результаты сканирования образов сохраняются вне исходников.
+/security-report/

@@ -6,7 +6,7 @@
 
 A small Docker web panel for AmneziaWG and standard WireGuard, with two independent VPN services and one `vpnctl` command. An independent, non-commercial fork of [AWG-Easy 3](https://github.com/alexsemenovru/awg-easy-3).
 
-> Current release: **0.2.3**. Existing clients, keys and passwords are retained during updates. See the [release notes](docs/releases/v0.2.3.md).
+> Current release: **0.2.4**. Existing clients, keys and passwords are retained during updates. See the [release notes](docs/releases/v0.2.4.md).
 
 ## At a glance
 
@@ -56,7 +56,7 @@ The command checks the latest stable release and updates its source code and rea
 
 Run `sudo vpnctl` from any directory for the management menu, or use `sudo vpnctl help`. Commands print readable text and save a public JSON report in `/root`; `--json` explicitly selects JSON in stdout. Progress and prompts go to stderr.
 
-On systemd/OpenRC, installation enables one stable-image check after boot with a five-minute delay; systemd adds up to two minutes of random delay. Manage it with `sudo vpnctl auto-update status|enable|disable|run`. Use `vpnctl update` to update the host source code too.
+On systemd/OpenRC, installation enables one stable-release check after boot with a five-minute delay; systemd adds up to two minutes of random delay. Manage it with `sudo vpnctl auto-update status|enable|disable|run`. The boot check and `vpnctl update` use the same source-code and ready-made-image update process.
 
 `vpnctl uninstall all` removes the services and working data while retaining internal backups. `vpnctl purge` also deletes internal backups and unused images whose ownership is confirmed. `vpnctl reinstall` creates a clean installation with new keys and passwords. Deletion and clean reinstallation require explicit confirmation, or `--yes` in automation.
 

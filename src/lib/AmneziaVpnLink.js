@@ -150,40 +150,15 @@ const qtCompress = (input, level = 8) => {
   return Buffer.concat([size, zlib.deflateSync(source, { level })]);
 };
 
-const qtUncompress = (input) => {
-  const source = Buffer.isBuffer(input) ? input : Buffer.from(input);
-  if (source.length < 5) throw new TypeError('Invalid qCompress payload');
-  const expectedLength = source.readUInt32BE(0);
-  const result = zlib.inflateSync(source.subarray(4));
-  if (result.length !== expectedLength) throw new Error('qCompress length mismatch');
-  return result;
-};
-
 const toBase64Url = (input) => Buffer.from(input)
   .toString('base64')
   .replace(/\+/g, '-')
   .replace(/\//g, '_')
   .replace(/=+$/g, '');
 
-const fromBase64Url = (input) => {
-  if (typeof input !== 'string' || !/^[A-Za-z0-9_-]+$/.test(input)) {
-    throw new TypeError('Invalid base64url payload');
-  }
-  const padding = '='.repeat((4 - (input.length % 4)) % 4);
-  return Buffer.from(input.replace(/-/g, '+').replace(/_/g, '/') + padding, 'base64');
-};
-
 const encodeVpnLink = (payload) => {
   const json = Buffer.from(JSON.stringify(payload));
   return `vpn://${toBase64Url(qtCompress(json))}`;
-};
-
-const decodeVpnLink = (link) => {
-  if (typeof link !== 'string' || !link.startsWith('vpn://')) {
-    throw new TypeError('AmneziaVPN link must start with vpn://');
-  }
-  const json = qtUncompress(fromBase64Url(link.slice('vpn://'.length)));
-  return JSON.parse(json.toString('utf8'));
 };
 
 const createVpnLink = (options) => encodeVpnLink(buildAmneziaPayload(options));
@@ -191,8 +166,6 @@ const createVpnLink = (options) => encodeVpnLink(buildAmneziaPayload(options));
 module.exports = {
   buildAmneziaPayload,
   createVpnLink,
-  decodeVpnLink,
   encodeVpnLink,
   qtCompress,
-  qtUncompress,
 };

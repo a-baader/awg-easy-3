@@ -134,7 +134,7 @@ sudo vpnctl purge --yes --json
 Повреждённые внутренние backup тоже удаляются. Повторный вызов после успешного
 purge не создаёт заново конфигурацию или журнал операций.
 
-Протокол проверок: [PURGE_TEST_REPORT.ru.md](PURGE_TEST_REPORT.ru.md).
+Протокол проверок: [PURGE_TEST_REPORT.ru.md](archive/review-baseline/PURGE_TEST_REPORT.ru.md).
 
 ## Обновление без дополнительных опций
 
@@ -160,5 +160,16 @@ Git нужен для получения исходников; Docker испол
 
 Дополнительный `--manifest FILE` сохраняет прежний режим: обновление образов
 по явно предоставленному манифесту без автоматической замены исходников.
-Boot-проверка `auto-update` сохраняет отдельный режим обновления образов.
+Boot-проверка `auto-update` использует тот же полный orchestrator CLI и образов.
 Подробности: [UPDATE_ROLLBACK.ru.md](UPDATE_ROLLBACK.ru.md).
+
+`vpnctl storage status` показывает объём и возраст внутренних backup/кешей.
+`vpnctl storage cleanup --dry-run` показывает план; настоящая очистка требует
+подтверждения. Параметры retention и защита активных ресурсов:
+[STORAGE](STORAGE.ru.md).
+
+Установленный CLI исполняется из защищённого снимка в
+`/usr/local/lib/wg-dual-easy/sources`, а не из доступного пользователю checkout.
+Restore по умолчанию использует доверенный установленный/свой release image.
+Флаг `--trust-backup-images` отдельно разрешает код точного образа из backup;
+обычный `--yes` этого доверия не даёт. [Подробности](BACKUP_RESTORE.ru.md).

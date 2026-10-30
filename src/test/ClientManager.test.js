@@ -7,6 +7,16 @@ const { generateOfficialProfile } = require('../lib/Awg3Config');
 const { ClientManager } = require('../lib/ClientManager');
 const { validateState } = require('../lib/StateStore');
 
+test('экспорт одного клиента не строит firewall и не загружает GeoIP', async () => {
+  const state = initialState();
+  const manager = new ClientManager({ store: { load: async () => state, save: async value => value },
+    applier: { apply() {} }, artifactBuilder: () => { throw new Error('Firewall не нужен при экспорте'); },
+    geoDatabase: () => { throw new Error('GeoIP не нужен при экспорте'); } });
+  const artifact = await manager.getClientExport(state.clients[0].id);
+  assert.match(artifact.nativeConfig, /\[Interface\]/);
+  assert.match(artifact.vpnLink, /^vpn:\/\//);
+});
+
 const profile = () => generateOfficialProfile({
   randomInt: (() => {
     const values = [20, 30, 40, 5];

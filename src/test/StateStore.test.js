@@ -54,6 +54,18 @@ test('validates and deeply freezes versioned clean-install state', () => {
   assert.equal(Object.isFrozen(state.clients[0]), true);
 });
 
+test('сохраняет отзыв сессий на диске и ограничивает его схему', async t => {
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'vpn-revocation-'));
+  t.after(() => fs.rm(directory, { recursive: true, force: true }));
+  const store = new StateStore(path.join(directory, 'state.json'));
+  const state = fixture();
+  state.auth.revokedSessions = [{ sid: 'a'.repeat(24), exp: Date.now() + 60000 }];
+  await store.save(state);
+  assert.deepEqual((await new StateStore(store.filePath).load()).auth.revokedSessions, state.auth.revokedSessions);
+  state.auth.revokedSessions = Array.from({ length: 1025 }, () => ({ sid: 'a'.repeat(24), exp: 1 }));
+  assert.throws(() => validateState(state), /отозванных сессий/);
+});
+
 test('atomically saves and loads state without losing secrets', async (t) => {
   const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'awg-easy-3-state-'));
   t.after(() => fs.rm(directory, { recursive: true, force: true }));

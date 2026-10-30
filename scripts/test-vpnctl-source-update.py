@@ -122,5 +122,18 @@ class SourceUpdate(unittest.TestCase):
             if url.endswith('SHA256SUMS'):return (hashlib.sha256(raw).hexdigest()+'  release-manifest.json\n').encode()
             return raw
         self.assertEqual(vpnctl_boot.fetch_release(fetch=fetch),value)
+    def test_boot_then_manual_update_is_noop_after_success(self):
+        config=self.manager.config();config['auto_check']=True;self.manager.write_config(config)
+        source=self.source();target=mock.Mock()
+        def apply(args):
+            config=self.manager.config();config['source_commit']=self.release['source_commit']
+            for name,item in config['components'].items():item.update(version=TEST_VERSION,image_ref=self.release['images'][name])
+            self.manager.write_config(config);self.manager.journal.unlink()
+            return {'updated':['awg','wg']}
+        target.update.side_effect=apply
+        with mock.patch('vpnctl_boot.fetch_release',return_value=self.release),mock.patch.object(updater,'stage_source',return_value=source),mock.patch.object(updater,'new_manager',return_value=target):
+            self.assertEqual(vpnctl_boot.run(self.manager)['updated'],['awg','wg'])
+        with mock.patch.object(updater,'stage_source') as stage:
+            self.assertFalse(self.update()['updated']);stage.assert_not_called()
 
 if __name__=='__main__':unittest.main()

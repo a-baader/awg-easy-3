@@ -7,10 +7,19 @@ import re
 from pathlib import Path
 import subprocess
 import tempfile
+import shutil
 
 class ManagerError(RuntimeError):
     def __init__(self, message, code=1):
         super().__init__(message); self.code = code
+
+def warn_storage_space(directory, needed=0):
+    path=Path(directory)
+    while not path.exists():path=path.parent
+    usage=shutil.disk_usage(path)
+    if usage.free < max(256*1024*1024,needed+32*1024*1024) or usage.free/max(usage.total,1)<.1:
+        from vpnctl_terminal import message
+        message('Предупреждение: мало места для backup/кеша: свободно '+str(usage.free//(1024*1024))+' MiB. Проверьте vpnctl storage status', 'warning')
 
 def atomic_write(path, data, mode=0o600):
     path = Path(path)

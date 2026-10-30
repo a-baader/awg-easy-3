@@ -4,6 +4,7 @@ const fs = require('node:fs/promises');
 const path = require('node:path');
 
 const { ApiService } = require('./ApiService');
+const { buildClientArtifact } = require('./ClientArtifact');
 const { buildAwgArtifacts } = require('./AwgArtifacts');
 const { BootstrapInstaller } = require('./BootstrapInstaller');
 const { ClientManager } = require('./ClientManager');
@@ -19,6 +20,7 @@ const { StateStore } = require('./StateStore');
 const { createBackend } = require('./VpnBackend');
 const { NetworkDetector } = require('./NetworkDetector');
 const { LocalControl } = require('./LocalControl');
+const { EngineWatchdog } = require('./EngineWatchdog');
 
 class Application {
   constructor({
@@ -35,6 +37,7 @@ class Application {
     discoveryFactory = (options) => new DiscoveryRelay(options),
     httpFactory = (options) => new HttpServer(options),
     geoFactory = (options) => new GeoIpUpdater(options),
+    onFatal = () => { process.exitCode = 1; },
   } = {}) {
     this.backend = backend ?? createBackend(backendName, { runner });
     this.dualMode = dualMode;
@@ -61,6 +64,8 @@ class Application {
     this.http6 = null;
     this.discovery = null;
     this.state = null;
+    this.onFatal = onFatal;
+    this.watchdog = null;
   }
 
   async initialize({
@@ -172,6 +177,18 @@ class Application {
         await this.control.start();
       }
       this.geo.start();
+      this.watchdog = new EngineWatchdog({
+        probe: () => this.backend.getStatus(state.server.interfaceName),
+        onFailure: async error => {
+          // При зависшей остановке процесс также обязан завершиться: Docker
+          // перезапускает контейнер только после выхода основного процесса.
+          const deadline = setTimeout(() => this.onFatal(error), 10000);
+          try { await this.stop(); }
+          catch { /* applier сохраняет firewall, если интерфейс ещё активен. */ }
+          finally { clearTimeout(deadline); this.onFatal(error); }
+        },
+      });
+      this.watchdog.start();
       return listening;
     } catch (error) {
       try {
@@ -186,6 +203,8 @@ class Application {
   }
 
   async stop() {
+    this.watchdog?.stop();
+    this.watchdog = null;
     const errors = [];
     if (this.control) await this.control.close().catch(error => errors.push(error));
     this.control = null;
@@ -216,10 +235,7 @@ class Application {
     const client = state.clients.find((item) => item.id === query
       || item.name.trim().toLocaleLowerCase() === folded);
     if (!client) throw new Error(`Unknown client: ${query}`);
-    // Exporting keys/routes does not need a country database or firewall build.
-    const artifacts = this.artifactBuilder({ server: state.server,
-      clients: state.clients.map(client => ({ ...client, geoPolicy: undefined })) });
-    const artifact = artifacts.clientArtifacts[client.id];
+    const artifact = buildClientArtifact({ server: state.server, client });
     return Object.freeze({ clientName: client.name, vpnLink: artifact.vpnLink,
       ...(this.backend.kind === 'wireguard' ? { nativeConfig: artifact.nativeConfig } : {}) });
   }

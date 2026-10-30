@@ -62,7 +62,12 @@ try:
     assert execute(['docker','inspect','-f','{{.State.Running}}',foreign]).strip()=='true'
     for key,value in forwards.items():assert execute(['docker','exec',anchor,'sysctl','-n',key]).strip()==value
     passed('полное удаление: данные, профили и vpnctl удалены; backup, чужой контейнер/firewall и forwarding сохранены')
-    manager.restore(build_parser().parse_args(['restore','--file',backup,'--component','all','--yes']))
+    version=(PROJECT/'VERSION').read_text().strip()
+    # До публикации используем образы кандидата из этого CI, сохраняя
+    # настоящую проверку backend/version и обязательный выбор своего релиза.
+    with mock.patch('vpnctl_boot.fetch_manifest',return_value={'version':version,'images':images}) as fetch:
+        manager.restore(build_parser().parse_args(['restore','--file',backup,'--component','all','--yes']))
+    fetch.assert_called_once_with(version)
     for item in manager.config()['components'].values():probe(item,profile(item))
     passed('после полного удаления оба VPN восстановлены из сохранённого внутреннего backup и передают HTTP')
     print('SUCCESS: контракт переустановки и удаления подтверждён реальными контейнерами',flush=True)

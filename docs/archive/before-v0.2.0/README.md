@@ -8,7 +8,7 @@
 > [Описание выпуска](../../releases/v0.2.0-rc.2.md). Два контейнера AWG/WG и единый host CLI.
 > Для установки используйте [INSTALL_DUAL.ru.md](../../INSTALL_DUAL.ru.md),
 > для сборки — [BUILD.md](../../BUILD.md), для команд — [CLI.ru.md](../../CLI.ru.md).
-> Состояние приёмки и непроверенные сценарии — [TEST_REPORT.md](../../TEST_REPORT.md).
+> Состояние приёмки и непроверенные сценарии — [TEST_REPORT.md](../review-baseline/TEST_REPORT.v0.2.3.md).
 > Краткая установка нашего форка приведена ниже; английская справка оригинала сохранена отдельно.
 
 
@@ -185,10 +185,10 @@ AWG 3.x profiles require an AWG 3.x-capable client; ordinary WireGuard and older
 
 **AmneziaVPN 5.0.2.1 on Android:** the Honor 50 comparison found an IPv6 panel timeout, while the same profile worked in the separate AmneziaWG app. Its [Android route processing](https://github.com/amnezia-vpn/amnezia-client/blob/5.0.2.1/client/android/protocolApi/src/main/kotlin/ProtocolConfig.kt) replaces `::/0` with `2000::/3`, excluding the panel's internal ULA address even in All sites mode. Use the IPv4 panel address or the tested Android alternative. This is not a claim about every AmneziaVPN version/platform. Internet access, DNS, Home peer services and discovery require their own tests; opening the panel alone does not certify them.
 
-Earlier field testing, through **0.1.3**. Adds per-client IPv4/IPv6 permissions and collapsible Access settings. Alpine/OpenRC installation, migration and reboots have now been tested on a real VPS, alongside the earlier Ubuntu/systemd coverage. Final UI changes were browser-tested locally after the VPS was deleted. See the [release notes](../../releases/v0.1.3.md) and [Alpine field report (Russian)](../../VPS_TEST_2026-08-31.ru.md).
+Earlier field testing, through **0.1.3**. Adds per-client IPv4/IPv6 permissions and collapsible Access settings. Alpine/OpenRC installation, migration and reboots have now been tested on a real VPS, alongside the earlier Ubuntu/systemd coverage. Final UI changes were browser-tested locally after the VPS was deleted. See the [release notes](../../releases/v0.1.3.md) and [Alpine field report (Russian)](../review-baseline/VPS_TEST_2026-08-31.ru.md).
 
 The pinned AWG 3.1 engine, Docker deployment, AmneziaVPN Android import, IPv4/IPv6 connectivity, Home/Guest isolation and profile revocation have been validated on a dedicated VPS. Server-side Home discovery fan-out and SSDP address rewriting have also been validated between two real peers; end-to-end visibility depends on whether the client application sends and receives multicast on the VPN interface.
 
 ## License and attribution
 
-See [docs/ARCHITECTURE.md](../../ARCHITECTURE.md) for design notes and [NOTICE](../../../NOTICE) for attribution.
+See [docs/ARCHITECTURE.md](../review-baseline/ARCHITECTURE.md) for design notes and [NOTICE](../../../NOTICE) for attribution.

@@ -5,6 +5,9 @@ const http = require('node:http');
 const test = require('node:test');
 
 const { HttpServer } = require('../lib/HttpServer');
+const { ApiService } = require('../lib/ApiService');
+const { SessionManager } = require('../lib/SessionManager');
+const { LoginLimiter } = require('../lib/LoginLimiter');
 
 const request = (port, method, pathname, { body, cookie, headers = {} } = {}) => new Promise((resolve, reject) => {
   const payload = body === undefined ? undefined : JSON.stringify(body);
@@ -57,6 +60,48 @@ const fixture = async (t) => {
   t.after(() => server.close());
   return { calls, port: address.port };
 };
+
+test('HTTP logout отзывает скопированную cookie на стороне сервера', async t => {
+  let state = { auth: { sessionSecret: 'Тестовый секрет' }, server: { uiLanguage: 'ru' } };
+  const store = { load: async () => state, save: async next => { state = next; } };
+  const api = new ApiService({ store, sessionManager: new SessionManager({ store }),
+    passwordManager: { verify: async password => password === 'Тестовый пароль', changePassword() {} },
+    clientManager: { createClient() {} } });
+  const server = new HttpServer({ api });
+  const { port } = await server.listen({ host: '127.0.0.1', port: 0 });
+  t.after(() => server.close());
+  const login = await request(port, 'POST', '/api/v1/session', { body: { password: 'Тестовый пароль' } });
+  assert.equal(login.status, 200);
+  const cookie = login.headers['set-cookie'][0].split(';')[0];
+  assert.equal(JSON.parse((await request(port, 'GET', '/api/v1/session', { cookie })).body).authenticated, true);
+  assert.equal((await request(port, 'DELETE', '/api/v1/session', { cookie })).status, 200);
+  assert.equal(JSON.parse((await request(port, 'GET', '/api/v1/session', { cookie })).body).authenticated, false);
+  assert.equal((await request(port, 'GET', '/api/v1/clients', { cookie })).status, 401);
+});
+
+test('HTTP login возвращает 429 и Retry-After; подмена X-Forwarded-For не обходит бюджет', async t => {
+  let comparisons = 0;
+  const store = { load: async () => ({ auth: { passwordHash: 'тест', sessionSecret: 'тестовый секрет' } }) };
+  const api = new ApiService({ store, loginLimiter: new LoginLimiter({ peerBurst: 2, clock: () => 0 }),
+    passwordManager: { verify: async () => { comparisons += 1; return false; }, changePassword() {} },
+    sessionManager: { create: () => assert.fail('Неверный пароль не выдаёт сессию'), verify: async () => false },
+    clientManager: { createClient() {} } });
+  const server = new HttpServer({ api });
+  const { port } = await server.listen({ host: '127.0.0.1', port: 0 });
+  t.after(() => server.close());
+  for (const address of ['10.8.0.2', '10.8.0.3']) {
+    assert.equal((await request(port, 'POST', '/api/v1/session', {
+      body: { password: 'неверный пароль' }, headers: { 'X-Forwarded-For': address },
+    })).status, 401);
+  }
+  const blocked = await request(port, 'POST', '/api/v1/session', {
+    body: { password: 'неверный пароль' }, headers: { 'X-Forwarded-For': '10.8.0.4' },
+  });
+  assert.equal(blocked.status, 429);
+  assert.equal(blocked.headers['retry-after'], '12');
+  assert.equal(comparisons, 2);
+  assert.equal((await request(port, 'GET', '/api/v1/session')).status, 200);
+});
 
 test('serves versioned session and client routes with security headers', async (t) => {
   const { calls, port } = await fixture(t);

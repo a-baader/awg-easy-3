@@ -75,7 +75,10 @@ NIX
       [ "$need_iproute" -eq 0 ] || packages="$packages iproute2"
       [ "$need_nft" -eq 0 ] || packages="$packages nftables"
       [ "$need_python" -eq 0 ] || packages="$packages python"
-      pacman --noconfirm -Sy --needed $packages ;;
+      # Не обновляем отдельно package database: partial upgrade ломает Arch.
+      if ! pacman --noconfirm -S --needed $packages; then
+        fail 'Arch: не удалось установить зависимости из текущей базы. Выполните согласованное обновление ОС командой sudo pacman -Syu, затем повторите установку. Установщик не обновляет ОС автоматически'
+      fi ;;
     apk)
       [ "$need_docker" -eq 0 ] || packages="$packages docker"
       [ "$need_compose" -eq 0 ] || packages="$packages docker-cli-compose"

@@ -110,6 +110,15 @@ const validateState = (input) => {
     passwordHash: requiredString(input.auth.passwordHash, 'auth.passwordHash'),
     sessionSecret: requiredString(input.auth.sessionSecret, 'auth.sessionSecret'),
   };
+  if (input.auth.revokedSessions !== undefined) {
+    const revoked = input.auth.revokedSessions;
+    if (!Array.isArray(revoked) || revoked.length > 1024 || revoked.some(item =>
+      !item || typeof item.sid !== 'string' || !/^[A-Za-z0-9_-]{16,128}$/.test(item.sid)
+      || !Number.isSafeInteger(item.exp) || item.exp < 0)) {
+      throw new TypeError('Некорректный список отозванных сессий');
+    }
+    auth.revokedSessions = revoked.map(({ sid, exp }) => ({ sid, exp }));
+  }
 
   const clients = input.clients.map((inputClient, index) => {
     if (!inputClient || typeof inputClient !== 'object' || Array.isArray(inputClient)) {

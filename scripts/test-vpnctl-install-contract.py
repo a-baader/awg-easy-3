@@ -175,14 +175,15 @@ class Contract(unittest.TestCase):
         self.assertEqual(current['components']['wg']['version'],'0.2.0')
         with mock.patch('vpnctl_boot.fetch_release',return_value=None) as fetch:
             vpnctl_boot.run(self.manager)
-        fetch.assert_called_once_with('0.1.6')
-    def test_boot_update_does_not_downgrade_newer_backend(self):
+        fetch.assert_called_once_with()
+    def test_boot_uses_same_source_and_image_orchestrator(self):
         cfg=self.installed();cfg['auto_check']=True
         cfg['components']['awg']['version']='0.2.0';cfg['components']['wg']['version']='0.3.0-rc.1'
         self.manager.write_config(cfg)
         with mock.patch('vpnctl_boot.fetch_release',return_value={'version':'0.2.1','images':{}}),mock.patch.object(self.manager,'update',return_value={'updated':['awg']}) as update:
             self.assertEqual(vpnctl_boot.run(self.manager),{'updated':['awg']})
-        self.assertEqual(update.call_args.args[0].component,'awg')
+        self.assertEqual(update.call_args.args[0].component,'all')
+        self.assertIsNone(update.call_args.args[0].manifest)
     def test_failed_reinstall_restores_state_and_bootstrap(self):
         cfg=self.installed();target=Path(cfg['components']['wg']['data_directory'])/'state.json';before=target.read_bytes()
         profile=self.manager.root/'bootstrap/wg.conf';atomic_write(profile,'старый профиль')
@@ -214,10 +215,16 @@ class Contract(unittest.TestCase):
         cfg=self.installed();before={name:(Path(item['data_directory'])/'state.json').read_bytes() for name,item in cfg['components'].items()}
         backup=self.manager.backup('all')['file']
         self.manager.uninstall(self.args(['uninstall','--yes']))
-        self.manager.restore(self.args(['restore','--file',backup,'--component','all','--yes']))
+        version=(PROJECT/'VERSION').read_text().strip()
+        release={'version':version,'images':{name:'ghcr.io/a-baader/wg-dual-easy-'+name+'@sha256:'+'a'*64 for name in cfg['components']}}
+        # Unit-тест не зависит от существования ещё не опубликованного релиза.
+        with mock.patch('vpnctl_boot.fetch_manifest',return_value=release) as fetch:
+            self.manager.restore(self.args(['restore','--file',backup,'--component','all','--yes']))
+        fetch.assert_called_once_with(version)
         for name,item in self.manager.config()['components'].items():
             self.assertEqual(item['data_directory'],cfg['components'][name]['data_directory'])
             self.assertEqual((Path(item['data_directory'])/'state.json').read_bytes(),before[name])
+            self.assertEqual(item['image_ref'],release['images'][name])
     def test_openrc_files_and_enable_disable_calls(self):
         (self.manager.system_root/'etc/init.d').mkdir(parents=True)
         with mock.patch('vpnctl_boot.shutil.which',return_value='/sbin/openrc-run'):

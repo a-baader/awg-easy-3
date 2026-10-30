@@ -72,7 +72,7 @@ client export без --output имеют собственный текстовы
 профилей или ответов RPC. Вывод подготовки системных зависимостей направляется
 в stderr, поэтому он не смешивается с JSON.
 
-Протокол проверок: [CLI_OUTPUT_TEST_REPORT.ru.md](CLI_OUTPUT_TEST_REPORT.ru.md).
+Протокол проверок: [CLI_OUTPUT_TEST_REPORT.ru.md](archive/review-baseline/CLI_OUTPUT_TEST_REPORT.ru.md).
 
 ## Цветной вывод
 
@@ -99,7 +99,7 @@ sudo env TERM=dumb vpnctl help
 Наличие `NO_COLOR` проверяется в окружении самого vpnctl: при запуске через sudo
 используйте `sudo env`, как в примерах. Дополнительные пакеты для цветов не нужны.
 
-Проверки цветов: [CLI_COLOR_TEST_REPORT.ru.md](CLI_COLOR_TEST_REPORT.ru.md).
+Проверки цветов: [CLI_COLOR_TEST_REPORT.ru.md](archive/review-baseline/CLI_COLOR_TEST_REPORT.ru.md).
 
 ## Порты после установки
 
@@ -151,7 +151,7 @@ sudo env TERM=dumb vpnctl help
 об успешном завершении. При откате показывается соответствующий этап.
 Правила явного подтверждения и границы удаления ресурсов остаются прежними.
 
-Протокол: [проверка прогресса удаления](REMOVAL_PROGRESS_TEST_REPORT.ru.md).
+Протокол: [проверка прогресса удаления](archive/review-baseline/REMOVAL_PROGRESS_TEST_REPORT.ru.md).
 
 ## ASCII progress bar
 
@@ -189,7 +189,7 @@ help и поток logs работают без дополнительной п�
 запуском индикатора. В stdout не добавляются полосы: JSON, .conf, QR и vpn://
 сохраняют свой формат. При --json полоса, как и другой прогресс, идёт в stderr.
 
-Проверки: [ASCII progress bar](ASCII_PROGRESS_TEST_REPORT.ru.md).
+Проверки: [ASCII progress bar](archive/review-baseline/ASCII_PROGRESS_TEST_REPORT.ru.md).
 
 ## Выход по Ctrl+C
 
@@ -200,6 +200,6 @@ Ctrl+C в меню и при вводе параметров завершает 
 без сообщения об ошибке или успешном завершении. Штатная очистка и откат
 уже начатых операций сохраняются.
 
-Проверки перерисовки: [LIVE_PROGRESS_TEST_REPORT.ru.md](LIVE_PROGRESS_TEST_REPORT.ru.md).
+Проверки перерисовки: [LIVE_PROGRESS_TEST_REPORT.ru.md](archive/review-baseline/LIVE_PROGRESS_TEST_REPORT.ru.md).
 
-Исправление режимов TTY: [LIVE_PROGRESS_FOLLOWUP_TEST_REPORT.ru.md](LIVE_PROGRESS_FOLLOWUP_TEST_REPORT.ru.md).
+Исправление режимов TTY: [LIVE_PROGRESS_FOLLOWUP_TEST_REPORT.ru.md](archive/review-baseline/LIVE_PROGRESS_FOLLOWUP_TEST_REPORT.ru.md).

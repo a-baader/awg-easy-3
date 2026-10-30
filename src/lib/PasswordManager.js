@@ -3,16 +3,18 @@
 const crypto = require('node:crypto');
 
 const { generatePassword } = require('./BootstrapInstaller');
+const { compareInWorker } = require('./IsolatedPasswordCompare');
 
 const defaultHash = (password) => require('bcryptjs').hash(password, 12);
 const defaultCompare = (password, hash) => require('bcryptjs').compare(password, hash);
 
 const validatePassword = (password) => {
   if (typeof password !== 'string' || password.length < 12 || password.length > 128) {
-    throw new TypeError('password must contain between 12 and 128 characters');
+    throw new TypeError('Пароль должен содержать от 12 до 128 символов и не более 72 байт UTF-8');
   }
+  if (Buffer.byteLength(password, 'utf8') > 72) throw new TypeError('Пароль превышает предел bcrypt: 72 байта UTF-8');
   if (/[\0\r\n]/.test(password)) {
-    throw new TypeError('password must not contain null bytes or line breaks');
+    throw new TypeError('Пароль не должен содержать нулевые байты или переводы строк');
   }
   return password;
 };
@@ -46,10 +48,12 @@ class PasswordManager {
     return state;
   }
 
-  async verify(password) {
-    if (typeof password !== 'string') return false;
-    const state = await this.requireState();
-    return Boolean(await this.compare(password, state.auth.passwordHash));
+  async verify(password, { auth, isolated = false } = {}) {
+    // Сохраняем совместимость со старыми паролями до 128 символов UTF-8.
+    if (typeof password !== 'string' || Buffer.byteLength(password, 'utf8') > 1024) return false;
+    const expected = auth ?? (await this.requireState()).auth;
+    const compare = isolated && this.compare === defaultCompare ? compareInWorker : this.compare;
+    return Boolean(await compare(password, expected.passwordHash));
   }
 
   async replacePassword(state, newPassword) {

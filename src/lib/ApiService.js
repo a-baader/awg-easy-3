@@ -2,6 +2,7 @@
 
 const { clientTraffic } = require('./ClientTraffic');
 const { createBackend, backendKind } = require('./VpnBackend');
+const { LoginLimiter } = require('./LoginLimiter');
 
 class ApiError extends Error {
   constructor(statusCode, message) {
@@ -36,7 +37,7 @@ const exportFileName = (name) => {
 };
 
 class ApiService {
-  constructor({ store, passwordManager, sessionManager, clientManager, diagnostics, geoStatus = () => ({}), qrGenerator = defaultQrGenerator } = {}) {
+  constructor({ store, passwordManager, sessionManager, clientManager, diagnostics, geoStatus = () => ({}), qrGenerator = defaultQrGenerator, loginLimiter = new LoginLimiter() } = {}) {
     if (!store || typeof store.load !== 'function') throw new TypeError('store must provide load');
     if (!passwordManager || typeof passwordManager.verify !== 'function'
       || typeof passwordManager.changePassword !== 'function') {
@@ -50,6 +51,7 @@ class ApiService {
       throw new TypeError('clientManager is invalid');
     }
     if (typeof qrGenerator !== 'function') throw new TypeError('qrGenerator must be a function');
+    if (typeof loginLimiter?.run !== 'function') throw new TypeError('Ограничитель входа должен предоставлять run');
     if (diagnostics && typeof diagnostics.snapshot !== 'function') throw new TypeError('diagnostics must provide snapshot');
     this.store = store;
     this.passwordManager = passwordManager;
@@ -58,19 +60,28 @@ class ApiService {
     this.qrGenerator = qrGenerator;
     this.diagnostics = diagnostics;
     this.geoStatus = geoStatus;
+    this.loginLimiter = loginLimiter;
   }
 
-  async login(password, { secureCookie = false } = {}) {
-    const operation = () => this.loginLocked(password, { secureCookie });
-    return typeof this.store.serialize === 'function' ? this.store.serialize(operation) : operation();
-  }
-
-  async loginLocked(password, { secureCookie = false } = {}) {
-    if (!(await this.passwordManager.verify(password))) throw new ApiError(401, 'Invalid credentials');
-    const token = await this.sessionManager.create();
-    return Object.freeze({
-      authenticated: true,
-      cookie: this.sessionManager.cookie(token, { secure: secureCookie }),
+  async login(password, { secureCookie = false, remoteAddress } = {}) {
+    return this.loginLimiter.run(remoteAddress, async () => {
+      const saved = (await this.store.load())?.auth;
+      if (!saved) throw new ApiError(503, 'VPN ещё не настроен');
+      const auth = { passwordHash: saved.passwordHash, sessionSecret: saved.sessionSecret };
+      if (!(await this.passwordManager.verify(password, { auth, isolated: true }))) {
+        throw new ApiError(401, 'Неверные учётные данные');
+      }
+      const operation = async () => {
+        const current = (await this.store.load())?.auth;
+        // Смена пароля/секрета во время bcrypt запрещает выдачу новой сессии.
+        if (!current || current.passwordHash !== auth.passwordHash || current.sessionSecret !== auth.sessionSecret) {
+          throw new ApiError(401, 'Неверные учётные данные');
+        }
+        const token = await this.sessionManager.create();
+        return Object.freeze({ authenticated: true,
+          cookie: this.sessionManager.cookie(token, { secure: secureCookie }) });
+      };
+      return typeof this.store.serialize === 'function' ? this.store.serialize(operation) : operation();
     });
   }
 
@@ -188,7 +199,8 @@ class ApiService {
     });
   }
 
-  logout({ secureCookie = false } = {}) {
+  async logout(token, { secureCookie = false } = {}) {
+    await this.sessionManager.revoke(token);
     return Object.freeze({
       success: true,
       cookie: this.sessionManager.clearCookie({ secure: secureCookie }),

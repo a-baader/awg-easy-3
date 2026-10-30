@@ -245,7 +245,7 @@ awg_easy_acquire_update_lock() {
 }
 
 awg_easy_stable_compose() {
-  AWG_IMAGE= docker compose --project-directory "$project_dir" -f "$project_dir/docker-compose.yml" "$@"
+  AWG_IMAGE= docker compose --profile legacy --project-directory "$project_dir" -f "$project_dir/docker-compose.yml" "$@"
 }
 
 awg_easy_install_manager() {
@@ -261,7 +261,7 @@ awg_easy_restore_previous() {
   git -C "$project_dir" reset --hard "$old_commit" >/dev/null || return 1
   awg_easy_install_manager || return 1
   # Use the original cached image ID, not a mutable registry tag.
-  AWG_IMAGE="$AWG_EASY_UPDATE_PREVIOUS_IMAGE" docker compose --project-directory "$project_dir" \
+  AWG_IMAGE="$AWG_EASY_UPDATE_PREVIOUS_IMAGE" docker compose --profile legacy --project-directory "$project_dir" \
     -f "$project_dir/docker-compose.yml" up -d --pull never awg-easy || return 1
   awg_easy_wait_healthy || return 1
   printf 'The previous healthy release was restored.\n' >&2

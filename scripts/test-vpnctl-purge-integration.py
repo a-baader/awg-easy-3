@@ -25,6 +25,11 @@ try:
     source_hash=hashlib.sha256((PROJECT/'vpnctl').read_bytes()).hexdigest()
     external=root/'external-backup.tar.gz';manager.backup('all',str(external))
     backup=Path(manager.backup('all')['file'])
+    manager.restore(build_parser().parse_args(['restore','--file',str(backup),'--component','all','--yes']))
+    assert not list(root.rglob('.before-restore-*')), 'Restore оставил неучтённые старые ключи'
+    assert backup.exists(), 'Проверенный внутренний backup должен сохраняться'
+    before=manager.path.read_bytes()
+    passed('restore: оба сервиса готовы, временные копии удалены, внутренний backup сохранён')
     execute(['docker','exec',anchor,'nft','add','table','inet','foreign_sentinel'])
     forwards={key:execute(['docker','exec',anchor,'sysctl','-n',key]).strip() for key in ['net.ipv4.ip_forward','net.ipv6.conf.all.forwarding']}
     purge=build_parser().parse_args(['purge','--yes'])
@@ -39,6 +44,7 @@ try:
     print(json.dumps(result,ensure_ascii=False),flush=True)
     assert result['purged'] and result['vpnctl_removed'] and not result['backups_preserved']
     assert not manager.root.exists() and not backup.exists() and external.exists()
+    assert not list(root.rglob('.before-restore-*')) and not list(root.rglob('.failed-*'))
     for item in cfg['components'].values():
         assert not Path(item['data_directory']).exists() and manager.inspect_container(item['container']) is None
         assert execute(['docker','exec',anchor,'ip','link','show','dev',item['interface']],check=False) is None

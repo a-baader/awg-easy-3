@@ -20,7 +20,8 @@ const fixture = () => {
   let passwordChanged;
   const clientCalls = [];
   const service = new ApiService({
-    store: { load: async () => ({ server: { uiLanguage: 'fa' }, clients: [SECRET_CLIENT] }) },
+    store: { load: async () => ({ auth: { passwordHash: 'test-hash', sessionSecret: 'test-secret' },
+      server: { uiLanguage: 'fa' }, clients: [SECRET_CLIENT] }) },
     passwordManager: {
       verify: async (password) => password === 'correct-password',
       changePassword: async (current, next) => { passwordChanged = { current, next }; },
@@ -30,6 +31,7 @@ const fixture = () => {
       verify: async (token) => token === 'signed-token',
       cookie: (token) => `session=${token}; HttpOnly`,
       clearCookie: () => 'session=; Max-Age=0',
+      revoke: async () => {},
     },
     clientManager: {
       createClient: async (input) => {
@@ -63,7 +65,7 @@ test('logs in with a generic failure and an HTTP-only cookie', async () => {
     authenticated: true,
     cookie: 'session=signed-token; HttpOnly',
   });
-  await assert.rejects(service.login('wrong'), (error) => error.statusCode === 401 && /Invalid credentials/.test(error.message));
+  await assert.rejects(service.login('wrong'), (error) => error.statusCode === 401 && /Неверные учётные данные/.test(error.message));
 });
 
 test('exposes the configured UI language without exposing secrets', async () => {
@@ -127,5 +129,34 @@ test('changes the password and clears the now-invalid session', async () => {
   const result = await service.changePassword('signed-token', 'old-password', 'new-secure-password');
   assert.deepEqual(getPasswordChanged(), { current: 'old-password', next: 'new-secure-password' });
   assert.equal(result.cookie, 'session=; Max-Age=0');
-  assert.equal(service.logout().cookie, 'session=; Max-Age=0');
+  assert.equal((await service.logout('signed-token')).cookie, 'session=; Max-Age=0');
+});
+
+test('неверный login не задерживает очередь управления', { timeout: 2000 }, async () => {
+  const { service } = fixture();
+  let entered, release;
+  const comparing = new Promise(resolve => { entered = resolve; });
+  const original = service.store;
+  let queue = Promise.resolve();
+  service.store = { load: original.load, serialize: operation => {
+    const result = queue.then(operation); queue = result.catch(() => {}); return result;
+  } };
+  service.passwordManager.verify = async () => {
+    entered(); await new Promise(resolve => { release = resolve; }); return false;
+  };
+  const login = assert.rejects(service.login('неверный пароль'), error => error.statusCode === 401);
+  await comparing;
+  let changed = false;
+  await service.store.serialize(() => { changed = true; });
+  assert.equal(changed, true);
+  release(); await login;
+});
+
+test('ротация секрета во время проверки пароля запрещает выдачу сессии', async () => {
+  const { service } = fixture();
+  let auth = { passwordHash: 'test-hash', sessionSecret: 'test-secret' };
+  service.store = { load: async () => ({ auth }) };
+  service.passwordManager.verify = async () => { auth.sessionSecret = 'другой секрет'; return true; };
+  service.sessionManager.create = () => assert.fail('Нельзя выдавать сессию по старой ревизии auth');
+  await assert.rejects(service.login('пароль'), error => error.statusCode === 401);
 });

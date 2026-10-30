@@ -192,4 +192,4 @@ the VPS WAN/LAN interface.
 The inherited code is distributed under CC BY-NC-SA 4.0. The fork must retain
 attribution, indicate modifications, remain non-commercial, and distribute
 adapted material under compatible ShareAlike terms. Dependency and bundled
-binary licenses are recorded separately in [third-party notices](THIRD_PARTY_NOTICES.md).
+binary licenses are recorded separately in [third-party notices](../../THIRD_PARTY_NOTICES.md).

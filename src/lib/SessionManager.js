@@ -3,6 +3,7 @@
 const crypto = require('node:crypto');
 
 const TOKEN_VERSION = 1;
+const MAX_REVOCATIONS = 1024;
 
 const encode = (value) => Buffer.from(JSON.stringify(value), 'utf8').toString('base64url');
 const sign = (payload, secret) => crypto.createHmac('sha256', secret).update(payload).digest('base64url');
@@ -56,7 +57,9 @@ class SessionManager {
     const parts = token.split('.');
     if (parts.length !== 2 || !parts.every((part) => /^[A-Za-z0-9_-]+$/.test(part))) return false;
     const [payload, signature] = parts;
-    const expected = sign(payload, await this.secret());
+    const state = await this.store.load();
+    if (!state) return false;
+    const expected = sign(payload, state.auth.sessionSecret);
     if (!safeEqual(signature, expected)) return false;
 
     let claims;
@@ -73,7 +76,24 @@ class SessionManager {
       && claims.iat <= now + 60_000
       && claims.exp > now
       && claims.exp - claims.iat === this.lifetimeMs,
-    );
+    ) && !(state.auth.revokedSessions ?? []).some(item => item.sid === claims.sid && item.exp > now);
+  }
+
+  async revoke(token) {
+    const operation = async () => {
+      if (!(await this.verify(token))) return;
+      const claims = JSON.parse(Buffer.from(token.split('.')[0], 'base64url').toString('utf8'));
+      const state = await this.store.load();
+      const revokedSessions = (state.auth.revokedSessions ?? []).filter(item => item.exp > this.clock());
+      revokedSessions.push({ sid: claims.sid, exp: claims.exp });
+      // Переполнение не возвращает отозванные токены к жизни: безопасно
+      // отзываем все сессии ротацией секрета вместо вытеснения старых записей.
+      const auth = revokedSessions.length > MAX_REVOCATIONS
+        ? { ...state.auth, sessionSecret: this.randomBytes(48).toString('base64url'), revokedSessions: [] }
+        : { ...state.auth, revokedSessions };
+      await this.store.save({ ...state, auth });
+    };
+    return typeof this.store.serialize === 'function' ? this.store.serialize(operation) : operation();
   }
 
   cookie(token, { secure = false } = {}) {
@@ -100,4 +120,4 @@ class SessionManager {
   }
 }
 
-module.exports = { SessionManager, TOKEN_VERSION };
+module.exports = { SessionManager, TOKEN_VERSION, MAX_REVOCATIONS };

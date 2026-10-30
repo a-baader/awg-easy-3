@@ -51,3 +51,29 @@ test('emits an HTTP-only strict cookie suitable for the VPN-only panel', async (
   assert.match(manager.cookie(await manager.create(), { secure: true }), /; Secure$/);
   assert.match(manager.clearCookie(), /Max-Age=0/);
 });
+
+test('logout отзывает только свой токен и сохраняется при перезапуске manager', async () => {
+  let state = { auth: { sessionSecret: 'Секрет теста' } };
+  const store = { load: async () => state, save: async next => { state = next; } };
+  const manager = new SessionManager({ store });
+  const token = await manager.create(), other = await manager.create();
+  await manager.revoke('поддельный-токен');
+  assert.equal(state.auth.revokedSessions, undefined);
+  await manager.revoke(token);
+  assert.equal(await manager.verify(token), false);
+  assert.equal(await manager.verify(other), true);
+  assert.equal(await new SessionManager({ store }).verify(token), false);
+  await manager.revoke(token);
+  assert.equal(state.auth.revokedSessions.length, 1);
+});
+
+test('переполнение списка отзыва не восстанавливает старые сессии', async () => {
+  let state = { auth: { sessionSecret: 'Секрет теста', revokedSessions: Array.from({ length: 1024 }, (_, n) =>
+    ({ sid: 'sid-' + String(n).padStart(20, '0'), exp: Date.now() + 60000 })) } };
+  const store = { load: async () => state, save: async next => { state = next; } };
+  const manager = new SessionManager({ store });
+  const token = await manager.create();
+  await manager.revoke(token);
+  assert.equal(await manager.verify(token), false);
+  assert.equal(state.auth.revokedSessions.length, 0);
+});

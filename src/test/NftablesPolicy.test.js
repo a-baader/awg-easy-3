@@ -133,6 +133,12 @@ test('multicast discovery направляется только от Home сво
     const rules = renderNftablesPolicy({ ...basePolicy(), interfaceName, serverAddress4, tableName, isolation: true });
     assert.ok(rules.includes(`iifname "${interfaceName}" ip saddr @home4 ip daddr 224.0.0.251 udp dport 5353 dnat ip to ${serverAddress4}`));
     assert.ok(rules.includes(`iifname "${interfaceName}" ip saddr @home4 ip daddr 239.255.255.250 udp dport 1900 dnat ip to ${serverAddress4}`));
+    for (const [group, port] of [['224.0.0.251', 5353], ['239.255.255.250', 1900]]) {
+      const exception = `iifname "${interfaceName}" ip saddr @home4 ip daddr ${serverAddress4} udp dport ${port} ct status dnat ct original ip daddr ${group} ct original proto-dst ${port} return`;
+      assert.ok(rules.includes(exception));
+      assert.ok(rules.indexOf(exception) < rules.indexOf('ct status dnat drop'));
+      assert.ok(rules.indexOf('ip saddr != @active4 drop') < rules.indexOf(exception));
+    }
     assert.doesNotMatch(rules, /iifname "eth0".*dnat/);
     assert.doesNotMatch(rules, /ip saddr @guest4.*dnat/);
   }

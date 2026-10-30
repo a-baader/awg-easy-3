@@ -14,6 +14,7 @@ PROJECT=Path(__file__).resolve().parents[1]
 sys.path.insert(0,str(PROJECT/'lib'))
 import vpnctl_manager
 import vpnctl_purge
+import vpnctl_retired
 from vpnctl_common import ManagerError,atomic_json
 fixture=runpy.run_path(str(PROJECT/'scripts/test-vpnctl.py'))
 OLD=fixture['OLD']
@@ -64,6 +65,86 @@ class Purge(unittest.TestCase):
     def test_repeat_is_noop_and_does_not_recreate_manager(self):
         self.installed();self.purge();self.manager.calls.clear()
         self.assertTrue(self.purge()['unchanged']);self.assertFalse(self.manager.root.exists());self.assertEqual(self.manager.calls,[])
+    def test_restore_then_purge_leaves_no_unarchived_secrets(self):
+        cfg=self.installed();archive=self.manager.backup('all')['file']
+        target=Path(cfg['components']['wg']['data_directory'])/'state.json'
+        target.write_text('{"version":3,"server":{"backend":"wireguard"},"secret":"Старый секрет"}')
+        self.manager.restore(vpnctl_manager.build_parser().parse_args(['restore','--file',archive,'--component','all','--yes']))
+        self.assertEqual(list(self.root.glob('.before-restore-*')),[])
+        self.assertTrue(Path(archive).exists())
+        self.purge()
+        self.assertFalse(self.manager.root.exists())
+        self.assertFalse(list(self.root.glob('.failed-*')))
+    def test_failed_update_cleans_retired_data_and_preserves_snapshot(self):
+        cfg=self.installed();release=self.root/'release.json'
+        atomic_json(release,{'version':'0.2.0','images':{'wg':fixture['BAD']}})
+        self.manager.fail_image=fixture['BAD']
+        with self.assertRaisesRegex(ManagerError,'Искусственный'):
+            self.manager.update(vpnctl_manager.build_parser().parse_args(['update','wg','--manifest',str(release),'--yes']))
+        self.assertFalse(list(self.root.glob('.failed-*')))
+        self.assertTrue(list((self.manager.root/'backups').glob('*.tar.gz')))
+        self.assertFalse(self.manager.journal.exists())
+    def test_cleanup_failure_keeps_committed_journal_for_recovery(self):
+        self.installed();archive=self.manager.backup('all')['file']
+        with mock.patch('vpnctl_retired.shutil.rmtree',side_effect=OSError('Искусственный отказ очистки')):
+            with self.assertRaisesRegex(OSError,'Искусственный'):
+                self.manager.restore(vpnctl_manager.build_parser().parse_args(['restore','--file',archive,'--component','all','--yes']))
+        journal=json.loads(self.manager.journal.read_text())
+        self.assertEqual(journal['phase'],'committed')
+        self.assertEqual(len(list(self.root.glob('.before-restore-*'))),2)
+        state=self.manager.config()['components']['wg']['data_directory']
+        (Path(state)/'after-commit').write_text('Новые данные сохраняются')
+        self.manager.rollback(journal)
+        self.assertFalse(self.manager.journal.exists())
+        self.assertFalse(list(self.root.glob('.before-restore-*')))
+        self.assertTrue((Path(state)/'after-commit').exists())
+    def test_retire_intent_survives_interruption_before_rename(self):
+        cfg=self.installed();target=Path(cfg['components']['wg']['data_directory'])
+        journal={'operation':'restore','phase':'prepared','previous':cfg,'candidate':cfg,'selected':['wg']}
+        with mock.patch('vpnctl_retired.durable_replace',side_effect=OSError('Искусственный отказ rename')):
+            with self.assertRaises(OSError):vpnctl_retired.retire(self.manager,journal,target,'.before-restore-')
+        saved=json.loads(self.manager.journal.read_text())
+        self.assertEqual(len(saved['retired_data']),1)
+        vpnctl_retired.cleanup(self.manager,saved)
+        self.assertTrue((target/'state.json').exists())
+    def test_retired_symlink_or_replaced_directory_is_not_deleted(self):
+        cfg=self.installed();target=Path(cfg['components']['wg']['data_directory'])
+        journal={'previous':cfg,'candidate':cfg,'selected':['wg']}
+        vpnctl_retired.retire(self.manager,journal,target,'.failed-')
+        retired=Path(journal['retired_data'][0]['path'])
+        saved=self.root/'saved';retired.rename(saved)
+        retired.mkdir();(retired/'foreign').write_text('Чужие данные')
+        with self.assertRaisesRegex(ManagerError,'подменена'):vpnctl_retired.cleanup(self.manager,journal)
+        self.assertTrue((retired/'foreign').exists())
+        (retired/'foreign').unlink();retired.rmdir();retired.symlink_to(saved,target_is_directory=True)
+        with self.assertRaisesRegex(ManagerError,'владение'):vpnctl_retired.cleanup(self.manager,journal)
+        self.assertTrue((saved/'state.json').exists())
+    def test_untracked_legacy_and_foreign_directories_are_preserved(self):
+        self.installed()
+        legacy=self.root/('.before-restore-'+'a'*32);legacy.mkdir()
+        (legacy/'foreign').write_text('Нет доказательства принадлежности')
+        self.purge()
+        self.assertTrue((legacy/'foreign').exists())
+    def test_failed_fresh_restore_and_extend_clean_created_data(self):
+        for operation in ['restore','extend']:
+            with self.subTest(operation=operation),tempfile.TemporaryDirectory() as directory:
+                root=Path(directory);manager=fixture['FakeManager'](root)
+                original=manager.run
+                def run(args,**kwargs):
+                    if args[:3] in (['ip','link','show'],['nft','list','table']):return None
+                    return original(args,**kwargs)
+                manager.run=run
+                candidate=fixture['config'](root)
+                previous=copy.deepcopy(candidate) if operation=='extend' else None
+                if previous:previous['components'].pop('wg')
+                manager.write_config(candidate)
+                journal={'operation':operation,'phase':'prepared','previous':previous,'candidate':candidate,
+                         'selected':['wg'] if previous else ['awg','wg']}
+                manager.save_journal(journal);manager.rollback(journal)
+                self.assertFalse(manager.journal.exists())
+                self.assertFalse(list(root.glob('.failed-*')))
+                self.assertFalse(Path(candidate['components']['wg']['data_directory']).exists())
+                self.assertEqual(Path(candidate['components']['awg']['data_directory']).exists(),bool(previous))
     def test_after_uninstall_removes_retained_backups(self):
         self.installed()
         with mock.patch('sys.stderr',io.StringIO()):self.manager.uninstall(vpnctl_manager.parse_arguments(PROJECT,['uninstall','all','--yes'])[1])

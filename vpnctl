@@ -19,8 +19,26 @@ while [ -L "$launcher" ]; do
 done
 base=$(CDPATH= cd -- "$(dirname -- "$launcher")" && pwd)
 if [ ! -r "$base/lib/vpnctl_manager.py" ]; then
+  # Проверка выполняется встроенным shell-кодом до импорта Python из снимка.
+  trusted_path() {
+    checked=$1
+    while :; do
+      [ ! -L "$checked" ] && [ -e "$checked" ] || { terminal_message 'Ошибка: небезопасная ссылка установленного CLI'; exit 73; }
+      owner=$(stat -c %u -- "$checked")
+      mode=$(stat -c %a -- "$checked")
+      [ "$owner" = 0 ] && [ "$((0$mode & 022))" -eq 0 ] || { terminal_message 'Ошибка: небезопасные права установленного CLI'; exit 73; }
+      [ "$checked" != / ] || break
+      checked=$(dirname -- "$checked")
+    done
+  }
+  trusted_path /etc/vpn-easy-dual-install-dir
   [ -r /etc/vpn-easy-dual-install-dir ] || { terminal_message 'Ошибка: каталог установки vpnctl не найден'; exit 69; }
   IFS= read -r base < /etc/vpn-easy-dual-install-dir
+  trusted_path "$base"
+  trusted_path "$base/lib"
+  for source in "$base"/lib/*.py "$base"/lib/*.sh "$base"/vpnctl "$base"/awg-easy-3; do
+    [ ! -e "$source" ] || trusted_path "$source"
+  done
 fi
 case "$base" in /*) ;; *) terminal_message 'Ошибка: некорректный каталог установки'; exit 65 ;; esac
 action=

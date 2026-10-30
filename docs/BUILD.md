@@ -30,7 +30,7 @@ HTTP-трафик через VPN, healthcheck и корректную остан
 удаляются в finally. Это не проверка Windows или реального выхода в Internet.
 
 Unit tests: Node >=18 по контракту приложения; рекомендуемый для CI Node
-22.18.0 и pnpm 11.19.0 из package.json. Для shell fixtures нужен git.
+22.23.4 и pnpm 11.19.0 из package.json. Для shell fixtures нужен git.
 
 ```bash
 cd src
@@ -47,3 +47,28 @@ Dual Compose: docker-compose.dual.yml. Обязательные сетевые, 
 аварийные тесты и их ограничения перечислены в TEST_REPORT.md.
 CI собирает оба target без публикации; публикация требует отдельного ручного
 workflow_dispatch с явно включённым publish для выбранного release tag.
+
+Production target `awg` (также target по умолчанию) и `wg` копируют только
+runtime-библиотеки, web assets, entrypoint и package metadata. Каталога
+`/app/test` в этих образах нет. Для тестовых helper предусмотрены `awg-test`
+и `wg-test`; CI использует их только там, где нужны встроенные fixtures.
+Publisher продвигает production-образы, прошедшие полный CI, без пересборки.
+Порядок выпуска: [RELEASE_PROCESS](RELEASE_PROCESS.ru.md).
+
+Node.js в production и CI закреплён на security-выпуске 22.23.4; digest
+официального Alpine-образа указан в Dockerfile. Полный unit suite запускайте
+в окружении с git и shell-инструментами, а не в минимальном production-образе.
+Пакеты тестового окружения в публикуемые образы не добавляются.
+Runtime собирается на Alpine с копированием только Node binary: npm, Corepack,
+pnpm и Yarn в него не попадают. Go-движки собираются Go 1.27.3 с проверенными
+lock-файлами из `scripts/engine-dependencies`; commit самих движков сохранены.
+
+Проверка OS-пакетов, Node.js и Go-зависимостей обоих образов:
+
+```bash
+python3 scripts/scan-release-images.py vpn-easy-awg:dual-dev vpn-easy-wg:dual-dev
+```
+
+Скрипт проверяет SHA-256 закреплённого Trivy, сохраняет JSON в security-report
+и возвращает ошибку при HIGH/CRITICAL. Workflow Security раз в неделю проверяет
+точные digest последнего stable-релиза и сохраняет отчёты, включая неуспешные.

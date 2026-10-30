@@ -22,9 +22,14 @@ from dual_preflight import PreflightError, environment_check, inspect_conflicts,
 from vpnctl_common import ManagerError, atomic_json, atomic_write, execute, global_lock, redact, durable_replace
 from vpnctl_backup import create_archive, verify_archive, extract_component
 import vpnctl_boot
+import vpnctl_retired
 from vpnctl_terminal import paint,message as terminal_message,help_text,progress_prompt
 from vpnctl_progress import installation_progress,removal_progress,command_progress
 from vpnctl_output import emit_result,format_human
+
+from vpnctl_transactions import TransactionManager
+from vpnctl_system import SystemIntegration
+from vpnctl_types import Plan
 
 UPDATE_API_VERSION=1
 
@@ -49,7 +54,7 @@ class Parser(argparse.ArgumentParser):
         terminal_message('Ошибка параметров. Используйте vpnctl help.\n' + self.format_usage(), file=sys.stderr)
         raise SystemExit(64)
 
-class Manager:
+class Manager(TransactionManager,SystemIntegration):
     def __init__(self, project, config='/etc/vpn-easy-dual/config.json', runner=execute, system_root='/'):
         self.project=Path(project).resolve(); self.path=Path(config).absolute(); self.run=runner
         self.root=self.path.parent; self.journal=self.root/'transaction.json'
@@ -101,7 +106,7 @@ class Manager:
             raise ManagerError(messages.get(result.get('code'),'Не удалось выполнить операцию приложения'))
         return result['value']
 
-    def write_config(self, config):
+    def write_config(self, config:Plan):
         validate_instances(config['components'])
         atomic_json(self.path,config); self.write_compose(config)
 
@@ -109,7 +114,8 @@ class Manager:
         services={}
         for name,item in config['components'].items():
             services[name+'-easy']={'image':item['image'],'pull_policy':'never','container_name':item['container'],
-              'network_mode':'host','restart':'unless-stopped','cap_add':['NET_ADMIN'],
+              'network_mode':'host','restart':'unless-stopped','cap_drop':['ALL'],'cap_add':['NET_ADMIN'],
+              'pids_limit':256,'cpus':2.0,'mem_limit':'1g','memswap_limit':'1g',
               'devices':['/dev/net/tun:/dev/net/tun'],'volumes':[item['data_directory']+':/data'],
               'read_only':True,'tmpfs':['/run:mode=0700,size=16m','/tmp:mode=1777,size=32m'],
               'security_opt':['no-new-privileges:true'],'stop_grace_period':'15s',
@@ -120,15 +126,21 @@ class Manager:
     def compose(self,*args):
         return self.run(['docker','compose','--project-directory',str(self.project),'-f',str(self.compose_path),*args])
 
-    def health(self,item):
-        for _ in range(60):
+    def health(self,item,timeout=60):
+        deadline=time.monotonic()+timeout
+        last_health=None
+        while True:
             info=self.inspect_container(item['container'])
-            if not info or not info['State'].get('Running'): raise ManagerError('Контейнер не работает: '+item['container'])
-            health=info['State'].get('Health',{}).get('Status')
-            if health=='healthy': return
-            if health=='unhealthy': raise ManagerError('Healthcheck не пройден: '+item['container'])
-            time.sleep(1)
-        raise ManagerError('Истёк срок ожидания healthcheck: '+item['container'])
+            if not info or not (info['State'].get('Running') or info['State'].get('Restarting')):
+                raise ManagerError('Контейнер не работает: '+item['container'])
+            last_health=info['State'].get('Health',{}).get('Status')
+            if info['State'].get('Running') and last_health=='healthy':return
+            # После start/recreate временный unhealthy не является конечным
+            # состоянием. Принимаем только healthy, но ждём весь заданный срок.
+            remaining=deadline-time.monotonic()
+            if remaining<=0:break
+            time.sleep(min(1,remaining))
+        raise ManagerError('Истёк срок ожидания healthcheck: '+item['container']+' (состояние: '+str(last_health)+')')
 
     def owned(self,config):
         proof={}
@@ -196,8 +208,10 @@ class Manager:
             result[name]={'container':item['container'],'running':bool(info and info['State'].get('Running')),
                 'health':info['State'].get('Health',{}).get('Status') if info else None,
                 'image':info.get('Image') if info else item['image'],'interface':item['interface'],
+                'version':item.get('version',config.get('version')),
                 'panel_url':f"http://{item['address4']}:{item['panel_port']}/"}
-        return {'installed':True,'version':config.get('version'),'components':result,'recovery_required':self.journal.exists()}
+        return {'installed':True,'version':config.get('version'),'cli_version':(self.project/'VERSION').read_text().strip(),
+            'source_commit':config.get('source_commit'),'components':result,'recovery_required':self.journal.exists()}
 
     def lifecycle(self,operation,component):
         config=self.config(); selected=self.selected(config,component); self.owned(config)
@@ -234,89 +248,6 @@ class Manager:
             if target==data or data in target.parents: raise ManagerError('Резервная копия должна храниться вне каталогов данных',64)
         with self.stopped(config,selected): return create_archive(config,selected,destination)
 
-    def save_journal(self,journal):
-        journal.setdefault('owner_pid',os.getpid())
-        parent=str(os.getppid())
-        journal.setdefault('lock_owner_pid',os.getppid() if os.environ.get('VPNCTL_BOOTSTRAP_LOCK')==parent else os.getpid())
-        atomic_json(self.journal,journal)
-
-    def freeze(self,journal):
-        # Сначала сохраняется намерение: recover снимет запрет и после аварии RPC.
-        if 'running_before' not in journal:
-            journal['running_before']=[]
-            for name in journal['selected']:
-                info=self.inspect_container(journal['previous']['components'][name]['container'])
-                if info and info['State'].get('Running'):journal['running_before'].append(name)
-        self.save_journal(journal)
-        config=copy.deepcopy(journal['previous'])
-        config['maintenance_components']=journal['selected']
-        for name in journal['selected']:
-            item=config['components'][name]
-            info=self.inspect_container(item['container'])
-            if info and info['State'].get('Running'): self.rpc(item,'maintenance.begin')
-        self.write_config(config)
-        return config
-
-    def commit_transaction(self,journal):
-        # После этой точки откат запрещён: панель могла уже принять новые изменения.
-        candidate=copy.deepcopy(journal['candidate'])
-        candidate['maintenance_components']=journal['selected']
-        self.write_config(candidate)
-        committed={**journal,'phase':'committed'}
-        journal['phase']='commit_uncertain'
-        self.save_journal(committed)
-        journal.update(committed)
-        self.finish_committed(journal)
-
-    def finish_committed(self,journal):
-        self.verify_transaction_containers(journal)
-        if journal['operation']=='uninstall':
-            return self.finish_uninstall(journal)
-        candidate=copy.deepcopy(journal['candidate']);candidate.pop('maintenance_components',None)
-        self.write_config(candidate)
-        for name in journal['selected']:
-            if name not in candidate['components']: continue
-            item=candidate['components'][name]
-            # Recover запускает и контейнер, остановленный в момент аварии.
-            self.compose('up','-d','--no-deps',name+'-easy');self.health(item)
-            info=self.inspect_container(item['container'])
-            if info and info['State'].get('Running'):
-                self.rpc(item,'maintenance.end')
-        self.journal.unlink(missing_ok=True)
-
-    def commit_rollback(self,journal):
-        completed={**journal,'phase':'rollback_committed'}
-        journal['phase']='commit_uncertain'
-        self.save_journal(completed)
-        journal.update(completed)
-        self.finish_rollback(journal)
-
-    def finish_rollback(self,journal):
-        # Данные уже восстановлены. Повторный recover не заменяет их snapshot.
-        self.verify_transaction_containers(journal)
-        previous=journal['previous']
-        self.restore_manager_files(journal)
-        if journal['operation']=='reinstall':
-            for name in journal['selected']:
-                for suffix in ['.conf','.vpn-url']:
-                    filename=name+suffix;path=self.root/'bootstrap'/filename
-                    value=journal.get('bootstrap_before',{}).get(filename)
-                    if value is None:path.unlink(missing_ok=True)
-                    else:atomic_write(path,base64.b64decode(value,validate=True))
-        if journal['operation']=='install' and previous.get('legacy_origin'):
-            item=previous['components']['awg'];info=self.inspect_container(item['container'])
-            if info and info.get('Image')!=item['image']:
-                self.run(['docker','rm','-f',item['container']])
-            self.run(['env','AWG_IMAGE='+item['image'],'docker','compose','--project-directory',previous['project'],'-f',str(Path(previous['project'])/'docker-compose.yml'),'up','-d','--pull','never','awg-easy'])
-            self.health(item);self.path.unlink(missing_ok=True)
-        else:
-            self.write_config(previous)
-            for name in journal['selected']:
-                if name in previous['components']:
-                    self.compose('up','-d','--no-deps',name+'-easy');self.health(previous['components'][name])
-                    info=self.inspect_container(previous['components'][name]['container'])
-                    if info and info['State'].get('Running'):self.rpc(previous['components'][name],'maintenance.end')
-        self.journal.unlink(missing_ok=True)
 
     def packet_probe(self,item,options):
         command=['docker','run','--rm','-i','--log-driver','none','--network','bridge','--cap-drop','ALL',
@@ -530,69 +461,6 @@ class Manager:
         self.bootstrap_results[name]={'password':result['bootstrapPassword'],'panel_url':result['panelUrl'],
             'profile_file':str(bootstrap/(name+'.conf')),'vpn_url':result.get('vpnLink')}
 
-    def system_files(self):
-        return {
-            self.system_root/'etc/sysctl.d/99-vpn-easy-dual.conf':('net.ipv4.ip_forward=1\nnet.ipv6.conf.all.forwarding=1\n',0o644),
-            self.system_root/'etc/modules-load.d/vpn-easy-dual.conf':('tun\n',0o644),
-            self.system_root/'etc/vpn-easy-dual-install-dir':(str(self.project)+'\n',0o644),
-            self.system_root/'usr/local/sbin/vpnctl':((self.project/'vpnctl').read_bytes(),0o755),
-            self.system_root/'usr/local/sbin/awg-easy-3':((self.project/'awg-easy-3').read_bytes(),0o755),
-            **vpnctl_boot.files(self.system_root,vpnctl_boot.backend(self.system_root)),
-        }
-
-    def sync_boot_hook(self):
-        self.install_stage('Настройка проверки обновлений после загрузки ОС')
-        try:
-            result=vpnctl_boot.configure(self,self.config().get('auto_check',False))
-            if result['backend']=='unsupported':terminal_message('Предупреждение: systemd/OpenRC недоступен; автоматическая проверка после загрузки не включена',file=sys.stderr)
-            return result
-        except (ManagerError,OSError):
-            terminal_message('Предупреждение: VPN установлен, но boot updater не настроен; выполните vpnctl auto-update enable',file=sys.stderr)
-            return {'enabled':False,'configuration_required':True}
-
-    def register(self,config):
-        self.install_stage('Регистрация vpnctl и системных файлов')
-        records={}
-        if self.journal.exists():
-            journal=json.loads(self.journal.read_text())
-            if 'manager_files_before' not in journal:
-                journal['manager_files_before']={}
-                for filename,(content,_mode) in self.system_files().items():
-                    journal['manager_files_before'][str(filename)]={
-                        'before':base64.b64encode(filename.read_bytes()).decode() if filename.exists() else None,
-                        'mode':filename.stat().st_mode&0o777 if filename.exists() else None,
-                        'after_sha256':hashlib.sha256(content.encode() if isinstance(content,str) else content).hexdigest()}
-                self.save_journal(journal)
-        for filename,(content,mode) in self.system_files().items():
-            atomic_write(filename,content,mode)
-            records[str(filename)]=hashlib.sha256(content.encode() if isinstance(content,str) else content).hexdigest()
-        config['manager_files']=records
-        self.write_config(config)
-
-    def restore_manager_files(self,journal):
-        allowed={str(filename) for filename in self.system_files()}
-        for filename,record in journal.get('manager_files_before',{}).items():
-            if filename not in allowed:raise ManagerError('Неизвестный системный путь в журнале восстановления',65)
-            path=Path(filename)
-            before=base64.b64decode(record['before'],validate=True) if record['before'] is not None else None
-            if path.exists():
-                if path.is_symlink() or not path.is_file():raise ManagerError('Системный файл изменён другим приложением: '+filename,73)
-                actual=path.read_bytes()
-                if actual==before:continue
-                if hashlib.sha256(actual).hexdigest()!=record['after_sha256']:
-                    raise ManagerError('Системный файл изменён другим приложением: '+filename,73)
-            if before is None:path.unlink(missing_ok=True)
-            else:atomic_write(path,before,record['mode'])
-
-    def check_system_paths(self,existing=None,legacy=None):
-        records=(existing or {}).get('manager_files',{})
-        for filename in self.system_files():
-            if not filename.exists() and not filename.is_symlink():continue
-            digest=hashlib.sha256(filename.read_bytes()).hexdigest() if filename.is_file() and not filename.is_symlink() else None
-            if digest and records.get(str(filename))==digest:continue
-            original=Path(legacy['directory'])/'awg-easy-3' if legacy else None
-            if legacy and filename==self.system_root/'usr/local/sbin/awg-easy-3' and original.is_file() and not filename.is_symlink() and filename.read_bytes()==original.read_bytes():continue
-            raise ManagerError('Системный путь уже занят; чужой файл не изменён: '+str(filename),73)
 
     @installation_progress
     def install(self,args):
@@ -699,12 +567,15 @@ class Manager:
     def restore(self,args):
         self.install_stage('Проверка резервной копии для восстановления')
         manifest=verify_archive(args.file)
+        validate_instances(manifest['manager_config']['components'])
         previous=self.config(False)
         if previous: self.owned(previous)
         candidate=copy.deepcopy(previous or manifest['manager_config'])
         candidate['project']=str(self.project)
         selected=manifest['selected'] if args.component=='all' else [args.component]
         if any(name not in manifest['selected'] for name in selected): raise ManagerError('Компонент отсутствует в архиве',65)
+        import vpnctl_restore_images
+        images=vpnctl_restore_images.select(self,manifest,previous,selected,getattr(args,'trust_backup_images',False))
         if not previous:
             self.check_system_paths()
             candidate['components']={name:copy.deepcopy(manifest['manager_config']['components'][name]) for name in selected}
@@ -721,15 +592,18 @@ class Manager:
                 source=manifest['manager_config']['components'][name]
                 data_directory=item['data_directory']
                 item.update(copy.deepcopy(source));item['data_directory']=data_directory
-                item['image']=self.image(source['image'],source['backend']); item['image_ref']=source.get('image_ref',source['image'])
+                item.update(images[name])
+                if not args.dry_run:
+                    item['image']=self.image(item['image'],item['backend'])
                 target=Path(item['data_directory'])
                 stage=target.parent/('.restore-'+uuid.uuid4().hex)
                 staged[name]=stage
                 extract_component(args.file,name,stage)
-                self.validate_state_image(item,stage)
+                if not args.dry_run:self.validate_state_image(item,stage)
             validate_instances(candidate['components'])
             self.check_plan(candidate,previous)
-            if args.dry_run: return {'dry_run':True,'verified':True,'components':selected}
+            if args.dry_run: return {'dry_run':True,'verified':True,'components':selected,'images':images,
+                'backup_images_trusted':getattr(args,'trust_backup_images',False),'image_execution_skipped':True}
             journal={'operation':'restore','phase':'prepared','previous':previous,'candidate':candidate,'selected':selected,'source_file':str(Path(args.file).absolute())}
             try:
                 if previous:
@@ -740,9 +614,9 @@ class Manager:
                 for name in selected:
                     if previous: self.compose('stop',name+'-easy')
                     target=Path(candidate['components'][name]['data_directory'])
-                    old=target.parent/('.before-restore-'+uuid.uuid4().hex)
-                    if target.exists(): durable_replace(target,old)
-                    durable_replace(staged.pop(name),target)
+                    vpnctl_retired.retire(self,journal,target,'.before-restore-')
+                    durable_replace(staged[name],target)
+                    staged.pop(name)
                     self.write_config(working)
                     self.compose('up','-d','--no-deps',name+'-easy'); self.health(candidate['components'][name])
                 if not previous: self.register(working)
@@ -786,11 +660,12 @@ class Manager:
                 item=journal['candidate']['components'][name]
                 self.cleanup_created(item)
                 directory=Path(item['data_directory'])
-                if directory.exists():durable_replace(directory,directory.parent/('.failed-'+name+'-'+uuid.uuid4().hex))
+                vpnctl_retired.retire(self,journal,directory,'.failed-'+name+'-')
             if previous:self.write_config(previous)
             else:
                 self.path.unlink(missing_ok=True);self.compose_path.unlink(missing_ok=True)
             self.restore_manager_files(journal)
+            vpnctl_retired.cleanup(self,journal)
             self.journal.unlink(missing_ok=True);return
         if not previous or not snapshot: raise ManagerError('Нет совместимой резервной копии; требуется vpnctl recover',75)
         manifest=verify_archive(snapshot)
@@ -801,29 +676,15 @@ class Manager:
                 if candidate:
                     self.cleanup_created(candidate)
                     directory=Path(candidate['data_directory'])
-                    if directory.exists():durable_replace(directory,directory.parent/('.failed-'+name+'-'+uuid.uuid4().hex))
+                    vpnctl_retired.retire(self,journal,directory,'.failed-'+name+'-')
                 continue
             target=Path(previous['components'][name]['data_directory'])
             stage=target.parent/('.rollback-'+uuid.uuid4().hex)
             extract_component(snapshot,name,stage)
-            old=target.parent/('.failed-'+uuid.uuid4().hex)
-            if target.exists(): durable_replace(target,old)
+            vpnctl_retired.retire(self,journal,target,'.failed-')
             durable_replace(stage,target)
         self.commit_rollback(journal)
 
-    def verify_transaction_containers(self,journal):
-        # Журнал не даёт права останавливать чужой контейнер с совпавшим именем.
-        for name in journal['selected']:
-            allowed=[config['components'][name] for config in [journal.get('previous'),journal.get('candidate')]
-                if config and name in config['components']]
-            for container in {item['container'] for item in allowed}:
-                info=self.inspect_container(container)
-                if not info:continue
-                source=next((m['Source'] for m in info.get('Mounts',[]) if m['Destination']=='/data'),None)
-                labels=info.get('Config',{}).get('Labels',{})
-                matches=any(info.get('Image')==item['image'] and source==item['data_directory'] for item in allowed if item['container']==container)
-                if not matches or info.get('HostConfig',{}).get('NetworkMode')!='host' or labels.get('com.docker.compose.service')!=name+'-easy':
-                    raise ManagerError('Восстановление остановлено: владение контейнером не подтверждено: '+container,73)
 
     def update(self,args):
         config=self.config(); selected=self.selected(config,args.component)
@@ -924,6 +785,7 @@ class Manager:
         except BaseException:self.rollback(journal);raise
 
     def finish_uninstall(self,journal):
+        vpnctl_retired.cleanup(self,journal)
         self.removal_stage('Удаление первых профилей и обновление конфигурации')
         candidate=journal['candidate'];previous=journal['previous']
         for name in journal['selected']:
@@ -1075,6 +937,7 @@ def build_parser():
     purge.add_argument('--dry-run',action='store_true',help='Показать план без удаления')
     purge.add_argument('--json',action='store_true',help='Вывести JSON в stdout вместо читаемого результата и файла отчёта')
     restore=command('restore',description='Восстановить проверенный архив')
+    restore.add_argument('--trust-backup-images',action='store_true',help='Явно доверять исполняемым образам backup вместо установленных/своего релиза')
     restore.add_argument('--file',required=True);restore.add_argument('--component',choices=['all','awg','wg'],required=True)
     restore.add_argument('--yes',action='store_true');restore.add_argument('--dry-run',action='store_true');restore.add_argument('--json',action='store_true',help='Вывести JSON в stdout вместо читаемого результата и файла отчёта')
     password=command('reset-password',description='Сбросить пароль и отозвать сессии')
@@ -1103,6 +966,13 @@ def build_parser():
     auto.add_argument('action',choices=['enable','disable','status','run'],
         help='enable — включить; disable — отключить; status — показать состояние; run — проверить stable-релиз и применить обновление')
     auto.add_argument('--json',action='store_true',help='Вывести JSON в stdout вместо читаемого результата и файла отчёта')
+    storage=command('storage','Показать объём и возраст backup/кешей; удалить старые только с подтверждением')
+    storage.add_argument('action',choices=['status','cleanup'])
+    storage.add_argument('--keep-backups',type=int,default=5,help='Сохранить минимум N новых backup; по умолчанию 5')
+    storage.add_argument('--keep-sources',type=int,default=2,help='Сохранить минимум N новых кешей каждого типа; по умолчанию 2')
+    storage.add_argument('--older-than-days',type=int,default=30,help='Очищать только ресурсы старше N дней; по умолчанию 30')
+    storage.add_argument('--yes',action='store_true');storage.add_argument('--dry-run',action='store_true')
+    storage.add_argument('--json',action='store_true',help='Вывести JSON в stdout')
     return parser
 
 def confirmation(args,message):
@@ -1177,14 +1047,21 @@ def _main(project,argv=None):
         except ManagerError as error: terminal_message('Ошибка: '+str(error),file=sys.stderr);return error.code
         return main(project,['--config',args.config,*chosen]) if chosen else 0
     readonly=args.command in ('status','settings','logs','diagnose') or args.command=='client' and args.action in ('list','export') or args.command=='auto-update' and args.action=='status'
+    readonly=readonly or args.command=='storage' and args.action=='status'
     dry=getattr(args,'dry_run',False)
     try:
+        if args.command=='storage' and min(args.keep_backups,args.keep_sources,args.older_than_days)<0:
+            raise ManagerError('Параметры retention не могут быть отрицательными',64)
         if manager.journal.exists() and not readonly and args.command not in ('recover','stop'):
             raise ManagerError('Обнаружена прерванная операция; выполните vpnctl recover',75)
         if args.command=='purge':
             confirmation(args,'Будут удалены ВСЕ сервисы приложения, клиенты, ключи, пароли, настройки, внутренние backup и установленный vpnctl. Восстановление из внутренних backup станет невозможно. Исходники, Docker, чужие ресурсы и текущий forwarding сохраняются')
+        elif args.command=='storage' and args.action=='cleanup':
+            confirmation(args,'Будут удалены старые внутренние backup и кеши по заданной retention; активные исходники и чужие файлы сохраняются')
         elif args.command in ('uninstall','reinstall'):
             confirmation(args,'Будут удалены рабочие клиенты, ключи, пароль, настройки и bootstrap-профили выбранных VPN. Внутренние backup со старыми ключами сохраняются. Docker, чужие ресурсы и текущий forwarding сохраняются. После удаления последнего VPN установленная команда vpnctl удаляется')
+        elif args.command=='restore' and args.trust_backup_images:
+            confirmation(args,'Вы явно доверяете коду образов из backup: они получат host network и NET_ADMIN. Операция может заменить данные VPN')
         elif args.command in ('backup','restore','recover') or args.command=='client' and args.action=='remove':
             confirmation(args,'Операция может остановить выбранные VPN или заменить данные')
         if args.command=='install' and manager.config(False) and set(manager.config()['components'])=={'awg','wg'}:
@@ -1199,6 +1076,9 @@ def _main(project,argv=None):
         if args.command=='install' and not manager.config(False) and manager.legacy():
             confirmation(args,'Миграция кратковременно остановит исходный AWG; сначала будет создана резервная копия')
         def perform():
+            if args.command=='storage':
+                import vpnctl_storage
+                return vpnctl_storage.execute(manager,args)
             if args.command=='auto-update':
                 if args.action=='run':return vpnctl_boot.run(manager)
                 config=manager.config()

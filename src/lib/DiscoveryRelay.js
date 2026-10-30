@@ -2,6 +2,7 @@
 
 const dgram = require('node:dgram');
 const { clientTraffic } = require('./ClientTraffic');
+const { DiscoveryGuard } = require('./DiscoveryGuard');
 
 const SERVICES = Object.freeze([
   Object.freeze({ name: 'mdns4', family: 'udp4', group: '224.0.0.251', port: 5353 }),
@@ -35,6 +36,7 @@ class DiscoveryRelay {
     this.home6 = new Set();
     this.sockets = [];
     this.requesters = new Map();
+    this.guard = new DiscoveryGuard({ clock });
   }
 
   refresh(state) {
@@ -43,6 +45,7 @@ class DiscoveryRelay {
       .map((client) => normalizedAddress(client.address4)));
     this.home6 = new Set(homes.filter((client) => clientTraffic(client).ipv6Enabled)
       .map((client) => client.address6).filter(Boolean).map(normalizedAddress));
+    this.guard.refresh(this.home4);
     // Expire pending unicast replies immediately when permissions are revoked.
     for (const service of SERVICES) {
       this.requesters.set(service.name, (this.requesters.get(service.name) ?? [])
@@ -80,11 +83,14 @@ class DiscoveryRelay {
     const socket = this.socketFactory({ type: service.family, reuseAddr: true });
     this.sockets.push(socket);
     socket.on('message', (message, rinfo) => {
-      if (message.length > 65_507) return;
+      if (!this.homes(service).has(normalizedAddress(rinfo.address))) return;
+      if (!Number.isInteger(rinfo.port) || rinfo.port < 1 || rinfo.port > 65535) return;
+      const targets = this.targets(service, rinfo);
       const payload = service.name === 'ssdp4'
         ? rewriteSsdpLocation(message, normalizedAddress(rinfo.address))
         : message;
-      for (const target of this.targets(service, rinfo)) {
+      if (!this.guard.allow(service, message, normalizedAddress(rinfo.address), targets.length, payload)) return;
+      for (const target of targets) {
         socket.send(payload, target.port, target.address, () => {});
       }
     });
@@ -131,6 +137,7 @@ class DiscoveryRelay {
       }
     })));
     this.requesters.clear();
+    this.guard.clear();
   }
 }
 

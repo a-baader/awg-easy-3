@@ -11,10 +11,11 @@ import tempfile
 from types import SimpleNamespace
 
 import vpnctl_boot
-from vpnctl_common import ManagerError,atomic_json,durable_replace
+from vpnctl_common import ManagerError,atomic_json,durable_replace,warn_storage_space
 
 
 def stage_source(manager,release):
+    warn_storage_space(manager.root)
     sources=manager.root/'sources'
     if sources.is_symlink() or sources.resolve()!=sources:
         raise ManagerError('Небезопасный каталог исходников релизов',73)

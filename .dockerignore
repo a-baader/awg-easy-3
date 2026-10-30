@@ -7,6 +7,10 @@ node_modules
 .env
 .env.*
 /data-wg
+/legacy/data
+/*.conf
+/*.vpn-url
+/*.tar.gz
 /backups
 /.vpnctl
 /bootstrap
@@ -15,3 +19,5 @@ node_modules
 __pycache__
 *.pyc
 **/node_modules
+# Отчёты локального сканирования не нужны для сборки.
+/security-report

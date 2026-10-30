@@ -10,7 +10,7 @@ const root = path.join(__dirname, '..', '..');
 
 test('pins amd64 base images and official AWG source revisions', () => {
   const dockerfile = fs.readFileSync(path.join(root, 'Dockerfile'), 'utf8');
-  const compose = fs.readFileSync(path.join(root, 'docker-compose.yml'), 'utf8');
+  const compose = fs.readFileSync(path.join(root, 'legacy', 'docker-compose.yml'), 'utf8');
   assert.equal((dockerfile.match(/FROM --platform=linux\/amd64/g) || []).length, 6);
   assert.equal((dockerfile.match(/@sha256:[a-f0-9]{64}/g) || []).length, 6);
   assert.match(dockerfile, /AWG_GO_COMMIT=b5928efb6ca19f0153958460c3d141f04abc5c2e/);
@@ -148,7 +148,7 @@ test('installer offers owned uninstall and clean reinstall without touching fore
   for (const command of ['start', 'stop', 'restart', 'status', 'settings', 'logs', 'diagnose', 'update', 'auto-update', 'reset-password', 'export-client', 'uninstall', 'reinstall']) {
     assert.match(manager, new RegExp(`\\b${command.replace('-', '\\-')}\\b`));
   }
-  assert.match(manager, /docker compose --project-directory "\$project_dir"/);
+  assert.match(manager, /docker compose --profile legacy --project-directory "\$project_dir"/);
   assert.match(manager, /awg_easy_run_stable_update/);
   assert.doesNotMatch(manager, /git -C "\$project_dir" pull --ff-only/);
   assert.doesNotMatch(manager, /docker system prune|docker volume prune|docker image prune/);

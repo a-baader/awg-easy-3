@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.2.4 — 2026-10-30
+
+- Исправления полного ревью: строгая изоляция панелей и discovery, отзыв сессий,
+  защита login от перегрузки и безопасная обработка backup/restore/recover.
+- Защищённый снимок установленного vpnctl, storage retention и единый процесс
+  ручного/boot обновления; watchdog движков и ограничения ресурсов.
+- Node.js 22.23.4, Go 1.27.3, Alpine 3.23.7; runtime без package managers и тестов.
+- Публикация проверенных CI-образов без пересборки, vulnerability scan и
+  продвижение master после готового stable. Подробности: [описание выпуска](releases/v0.2.4.md).
+
 ## 0.2.3 — 2026-10-29
 
 - Перерисовка одной строки progress bar в TTY, включая TERM=dumb.
@@ -53,7 +63,7 @@
 - Read legacy clients without regenerating profiles or enabling disabled peers. Persist conservative legacy `enabled` values so manual downgrade cannot silently reopen a blocked family.
 - Make installation work on minimal Alpine hosts: apply only the owned sysctl file with BusyBox-compatible options, create the management-command directory, and persist TUN loading across OS boots. Uninstall removes only the owned modules-load file and does not unload modules used by other services.
 - Finish the OpenRC one-shot worker without leaving a false crashed-service status; preserve its exit result and avoid clearing a replacement worker's state.
-- Add regression and field coverage: 203 local tests, complete Dockerfile build, legacy migration, real AWG family/peer isolation tests and native OpenRC reboot checks on Alpine. User tests confirmed IPv6 blocking/restoration and direct IPv6 with IPv4 blocked; DNS then failed and recovered when IPv4 was restored. This does not establish universal AmneziaVPN DNS compatibility. Final UI changes were tested locally after the test VPS was deleted. See the [release notes](releases/v0.1.3.md), [field report](VPS_TEST_2026-08-31.ru.md) and [implementation/test plan](IP_FAMILIES.ru.md).
+- Add regression and field coverage: 203 local tests, complete Dockerfile build, legacy migration, real AWG family/peer isolation tests and native OpenRC reboot checks on Alpine. User tests confirmed IPv6 blocking/restoration and direct IPv6 with IPv4 blocked; DNS then failed and recovered when IPv4 was restored. This does not establish universal AmneziaVPN DNS compatibility. Final UI changes were tested locally after the test VPS was deleted. See the [release notes](releases/v0.1.3.md), [field report](archive/review-baseline/VPS_TEST_2026-08-31.ru.md) and [implementation/test plan](IP_FAMILIES.ru.md).
 
 ## v0.1.2 — 2026-08-30
 
@@ -65,7 +75,7 @@ Includes the diagnostics, installer, boot-time stable updates, credits and origi
 - Replace the invalid Dependabot template with weekly GitHub Actions and Docker base-image PRs. No automatic merging. pnpm 11 dependency updates remain manual pending upstream support; the application image in Compose continues to follow release metadata.
 - Publish stable release notes only after the tagged image build succeeds, as already done for RC notes.
 
-Real VPS validation covered Ubuntu/systemd; OpenRC boot integration still needs a real-host field test. The final display-only changes were tested locally in browsers on synthetic data, not redeployed to the destroyed VPS. See the [field report](VPS_TEST_2026-08-30.ru.md) and [release notes](releases/v0.1.2.md).
+Real VPS validation covered Ubuntu/systemd; OpenRC boot integration still needs a real-host field test. The final display-only changes were tested locally in browsers on synthetic data, not redeployed to the destroyed VPS. See the [field report](archive/review-baseline/VPS_TEST_2026-08-30.ru.md) and [release notes](releases/v0.1.2.md).
 
 ## v0.1.2-rc.2 — 2026-08-30
 
@@ -89,7 +99,7 @@ Test candidate, not a stable release. VPS validation is still required.
 - Hardened updater interruption handling, immutable-image rollback, release validation and lock ownership. Existing locks are never stolen; an orphaned `/run` lock is cleared by reboot. An explicitly installed RC can later move to its matching or newer stable release, but never downgrades to an older stable release.
 - **Protection against devils** («Защита от чертей» / «Protección contra demonios» / «محافظت در برابر شیاطین» / «抵御恶魔»): added the approved original SVG mark and static Pride-colour background. The header mark is inline SVG; favicon and platform icons use standards-compatible files. This is a visual statement, not a technical access-control mechanism.
 
-The candidate pins `0.1.2-rc.1` consistently in the installer checkout, package and image. Tag publishing runs tests first and never moves `latest` for an RC. Stable `0.1.1` remains unchanged. See the [VPS test checklist](RELEASE_TEST.ru.md).
+The candidate pins `0.1.2-rc.1` consistently in the installer checkout, package and image. Tag publishing runs tests first and never moves `latest` for an RC. Stable `0.1.1` remains unchanged. See the [VPS test checklist](archive/review-baseline/RELEASE_TEST.ru.md).
 
 ## v0.1.1 — 2026-08-25
 

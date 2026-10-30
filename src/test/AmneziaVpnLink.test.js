@@ -8,10 +8,9 @@ const { generateHeaderProtectionKey } = require('../lib/Awg3Config');
 const {
   buildAmneziaPayload,
   createVpnLink,
-  decodeVpnLink,
   qtCompress,
-  qtUncompress,
 } = require('../lib/AmneziaVpnLink');
+const { decodeVpnLink, qtUncompress } = require('./helpers/decode-vpn-link');
 
 const options = () => ({
   description: 'My phone',

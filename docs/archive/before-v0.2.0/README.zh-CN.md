@@ -6,7 +6,7 @@
 > [Описание выпуска](../../releases/v0.2.0-rc.2.md). Два контейнера AWG/WG и единый host CLI.
 > Для установки используйте [INSTALL_DUAL.ru.md](../../INSTALL_DUAL.ru.md),
 > для сборки — [BUILD.md](../../BUILD.md), для команд — [CLI.ru.md](../../CLI.ru.md).
-> Состояние приёмки и непроверенные сценарии — [TEST_REPORT.md](../../TEST_REPORT.md).
+> Состояние приёмки и непроверенные сценарии — [TEST_REPORT.md](../review-baseline/TEST_REPORT.v0.2.3.md).
 > Описание ниже относится к исходному выпуску AWG-Easy 3 0.1.6.
 
 
@@ -122,10 +122,10 @@ sudo awg-easy-3 export-client "Home admin"
 
 **Android 上的 AmneziaVPN 5.0.2.1：**Honor 50 对比测试中，IPv6 面板连接超时，但同一配置在独立 AmneziaWG 应用中正常。[Android 路由处理代码](https://github.com/amnezia-vpn/amnezia-client/blob/5.0.2.1/client/android/protocolApi/src/main/kotlin/ProtocolConfig.kt) 将 `::/0` 替换为 `2000::/3`，即使在“所有网站”模式下也不包含面板的内部 ULA 地址。请使用 IPv4 面板或已实测的 Android 替代客户端。此结论不泛指所有版本或平台。互联网、DNS、Home 客户端服务和服务发现仍需分别测试。
 
-此前截至 **0.1.3** 的实测。新增各客户端独立 IPv4/IPv6 权限及可折叠的“访问设置”。除之前的 Ubuntu/systemd 测试外，现已在真实 VPS 上验证 Alpine/OpenRC 的安装、迁移和重启。最后的界面修改是在 VPS 删除后于本地浏览器中验证的。请参阅[发行说明](../../releases/v0.1.3.md)和[Alpine 实测报告（俄语）](../../VPS_TEST_2026-08-31.ru.md)。
+此前截至 **0.1.3** 的实测。新增各客户端独立 IPv4/IPv6 权限及可折叠的“访问设置”。除之前的 Ubuntu/systemd 测试外，现已在真实 VPS 上验证 Alpine/OpenRC 的安装、迁移和重启。最后的界面修改是在 VPS 删除后于本地浏览器中验证的。请参阅[发行说明](../../releases/v0.1.3.md)和[Alpine 实测报告（俄语）](../review-baseline/VPS_TEST_2026-08-31.ru.md)。
 
 AWG 3.1、Docker 部署、AmneziaVPN Android 导入、IPv4/IPv6、Home/Guest 隔离以及已删除配置的撤销均已在独立 VPS 上验证。服务器端 Home 发现转发和 SSDP 地址重写也已在两个真实 peer 之间验证；最终可见性取决于客户端应用是否通过 VPN 接口支持组播。
 
 ## 许可与署名
 
-继承并改编的材料按 **CC BY-NC-SA 4.0** 发布。请参阅 [LICENSE](../../../LICENSE)、[NOTICE](../../../NOTICE) 和 [docs/ARCHITECTURE.md](../../ARCHITECTURE.md)。本项目与 AmneziaVPN 没有关联，也未获其官方认可。
+继承并改编的材料按 **CC BY-NC-SA 4.0** 发布。请参阅 [LICENSE](../../../LICENSE)、[NOTICE](../../../NOTICE) 和 [docs/ARCHITECTURE.md](../review-baseline/ARCHITECTURE.md)。本项目与 AmneziaVPN 没有关联，也未获其官方认可。

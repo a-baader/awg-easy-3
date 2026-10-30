@@ -1,75 +1,84 @@
-# Протокол проверок wg-dual-easy 0.2.3
+# Текущий протокол проверок после ревью
 
-Стабильный выпуск 0.2.3 основан на двух независимых сервисах AWG/WG и едином
-host manager vpnctl. Проверки выполняются в одноразовых контейнерах и сетевых
-namespace с временными системными каталогами, без изменения действующего VPS.
+Эта страница описывает невыпущенные изменения P1/P2/P3 рабочей ветки.
+Стабильный опубликованный выпуск определяется GitHub Releases и веткой master;
+рабочая release-ветка может содержать VERSION следующего выпуска.
+Исторический протокол [0.2.3](archive/review-baseline/TEST_REPORT.v0.2.3.md)
+не подменяет проверки текущего кода.
 
-## Автоматические проверки
+## Обязательные проверки
 
-| Набор | Результат |
+| Сценарий | Что должно быть подтверждено |
 | --- | --- |
-| Node: API, auth, очереди записи, UI, QR, сетевые политики и metadata | 258 тестов |
-| Python: host manager | 23 теста |
-| Python: контракт установки | 28 тестов |
-| Python: purge | 19 тестов |
-| Python: обновление исходников | 17 тестов |
-| Python: прогресс установки | 5 тестов |
-| Python: читаемый вывод, JSON и публичные отчёты | 13 тестов |
-| Python: цвета, прогресс удаления и ASCII | 18 тестов |
-| Python: тихий Ctrl+C и интерактивная строка прогресса | 13 тестов |
-| Python preflight | 2 группы проверок конфликтов |
-| Python compile, Shell syntax, npm check, Compose config, ссылки документации | Проверяются перед выпуском |
+| Unit Node/Python и preflight | API, auth/revocation, схемы, экспорт, journal, ownership, CLI, прогресс, архивы, retention |
+| Синтаксис, actionlint и ссылки | Python/JavaScript/shell/YAML, актуальные версии документации, существующие локальные ссылки |
+| Production AWG/WG | Сборка настоящих target, отсутствие `/app/test`, совместимые tools/engine |
+| Панели | Home своего VPN открывает свою панель; Guest, другой VPN, WAN, host/Docker-обход и посторонний DNAT закрыты |
+| Discovery | Настоящий multicast `224.0.0.251:5353` и `239.255.255.250:1900`, а также unicast к собственному VPN-адресу; fan-out только своему Home |
+| Runtime engine | SIGKILL настоящего AWG/WG после ready, restart своего контейнера, прежний профиль и HTTP; соседний VPN не перезапускается |
+| Lifecycle | Install/extend, backup/restore, update/rollback, recover после SIGKILL, uninstall/reinstall/purge, source update/no-op |
+| Защита данных | Нет оставшихся учтённых `.failed-*`/`.before-restore-*`; backup сохраняется до purge; чужие ресурсы и forwarding сохранены |
+| Browser | Chromium через настоящие Home AWG/WG: вход, CRUD, conf/QR, мобильный вид, языки, пароль и сессии |
+| Release pipeline | Успешный полный CI точного commit; продвижение проверенных image ID без пересборки, provenance, готовые assets до продвижения master |
 
-Полный GitHub Actions Test для точного commit тега является обязательным
-барьером публикации. Он повторяет unit-проверки, собирает оба образа и выполняет
-все сценарии ниже. Ссылка на точный запуск указывается в GitHub Release.
+Проверки выполняются только в disposable Docker/network namespace и временных
+system root. Handshake, наличие интерфейса или локальный HTTP не считаются
+доказательством доставки peer-трафика. Пакетные тесты отправляют настоящий HTTP
+и DNS через туннель; discovery отдельно проверяет multicast и unicast.
 
-## Контейнеры и передача пакетов
+При отказе readiness сохраняются очищенные healthcheck/process logs до удаления
+контейнеров. Принимается только настоящий `healthy` в пределах срока ожидания;
+постоянный `unhealthy` не игнорируется.
 
-- AWG/WG: инициализация, healthcheck, graceful shutdown, стандартные WG tools.
-- Реальные Home/Guest peer: собственная панель, HTTP/NAT и DNS через туннель;
-  изоляция чужой панели, WAN-портов и запрещённых семейств адресов.
-- Dual IPv4/IPv6, Home-to-Home, guest isolation, mDNS/SSDP, GeoIP и restart.
-- Миграция исходного AWG-Easy 3 0.1.6 с сохранением старых профилей.
-- Backup/restore, обновление образов, откат при отказе и восстановление после SIGKILL.
-- Фазы committed/rollback_committed сохраняют уже подтверждённые записи.
-- Partial uninstall, чистая переустановка, полный purge с защитой чужих ресурсов,
-  внешних backup, исходников и текущего forwarding.
-- Обновление из локального тестового stable Git-тега: новый host manager,
-  готовые образы, возврат прежнего CLI после отказа и HTTP через оба Home VPN.
-- Прогресс настоящей установки, JSON stdout отдельно от stderr, публичный
-  файл 0600 без паролей и содержимого профилей.
+## Результаты и пределы
 
-## Браузер
+После исправлений P2 прошли 267 Node-тестов, 163 Python/preflight, полный
+lifecycle, 24 быстрых recreate при смене maintenance, сетевые и browser-проверки,
+миграция, purge и SIGKILL/recover. После P3 прошли 268 Node-тестов, 166 Python/preflight, все перечисленные
+контейнерные и browser-сценарии. Оба production target собраны настоящим
+Dockerfile; тестовых файлов в них нет. Проверены 248 локальных Markdown-ссылок,
+версии документации, actionlint и default/legacy Compose без запуска сервисов.
+Новый релиз этим не объявляется опубликованным.
 
-Headless Chromium через настоящие Home VPN обоих backend: вход, CRUD клиентов,
-conf/QR, языки, мобильный вид, смена пароля и отзыв сессий. Скриншоты и машинный
-отчёт сохраняются в artifact browser-report GitHub Actions.
+По решению пользователя R09 ограничен capabilities/resource limits. Web/API
+остаётся root с NET_ADMIN; полное разделение с helper отложено.
+Оставшиеся P1 R03/R04 в эти этапы не включены.
 
-## Проверки после публикации
+## Последующие исправления R03/R04
 
-Перед завершением выпуска проверяются SHA256SUMS всех assets, анонимный pull
-обоих GHCR-образов, digest, Linux/amd64, backend, версия приложения и OCI commit.
-Обычная установка без явных --awg-image/--wg-image получает опубликованный
-манифест; работа обоих VPN подтверждается реальной передачей HTTP.
-Результаты этих проверок фиксируются в GitHub Release после публикации.
+Node.js обновлён до 22.23.4, Go до 1.27.3, Alpine до 3.23.7; digest закреплены.
+Security-lock файлы Go-зависимостей сохранены в scripts/engine-dependencies,
+commit исходников движков сохранены. Runtime не содержит package managers,
+git и тестовых файлов. Полный suite проверялся в отдельном Debian с Git и
+frozen pnpm dependencies; исходные timeout Git-сценариев не увеличивались.
+
+После R04 прошли 279 Node tests, включая отдельные worker threads для bcrypt,
+границы rate/concurrency, HTTP 429/Retry-After, запрет обхода через
+X-Forwarded-For и гонку со сменой passwordHash/sessionSecret. Проверка настоящего
+bcrypt в обоих production-образах при 2 CPU, 1 GiB и 256 PID подтвердила
+доступность HTTP/очереди управления и отказ лишним параллельным login.
+Browser через настоящие Home AWG/WG: вход, CRUD, conf/QR, языки, mobile,
+смена пароля, отзыв сессии и logout — PASS.
+Перед подготовкой кандидата повторно прошли 166 Python/preflight проверок;
+проверены 251 локальных Markdown-ссылок. Fresh restore в тестах использует
+manifest образов этого CI, чтобы проверять кандидат до его публикации;
+production-проверка доверенных образов не отключается.
+
+Trivy: HIGH/CRITICAL = 0 для обоих итоговых образов, без ignore/VEX исключений.
+Три UNKNOWN относятся к OpenPGP и x/net/html; официальные записи Go и
+go list -deps подтверждают отсутствие затронутых пакетов в сборках движков.
+Полные scanner-отчёты сохраняются. Сканирование включено в CI кандидата
+до сохранения tested-images и отдельно выполняется еженедельно для stable.
+
+После обновления Go/Alpine прошли upstream padding/disabled-cookie regressions
+(count=5), upgrade/rollback со старыми AWG-клиентами и полный dual-network,
+включая приоритетную изоляцию панелей Home своей VPN-подсетью.
+GitHub Actions точного итогового commit проверяются отдельно перед выпуском.
 
 ## Отложено по решению пользователя
 
-- Полный reboot отдельной VM и фактический systemd/OpenRC после перезагрузки.
-- Reboot или отключение питания во время update/restore.
-- Полевые Windows/Android/iOS и физические устройства.
+- Reboot отдельной VM и фактический systemd/OpenRC после загрузки ОС.
+- Отключение питания во время update/restore.
+- Полевые Windows/Android/iOS и физические устройства, включая их multicast-маршруты.
 
-Проверка unit-файлов, вызовов init и headless браузера не подменяет эти сценарии.
-Стабильный статус релиза не означает, что отложенные проверки выполнены.
-
-Подробные протоколы: [purge](PURGE_TEST_REPORT.ru.md),
-[обновление исходников](SOURCE_UPDATE_TEST_REPORT.ru.md),
-[вывод и прогресс](CLI_OUTPUT_TEST_REPORT.ru.md).
-[Архив разработки](archive/TEST_REPORT.before-v0.2.0.md) содержит результаты
-прежних этапов; прежние формулировки не описывают текущий выпуск.
-
-Дополнительные протоколы: [Ctrl+C](QUIET_INTERRUPT_TEST_REPORT.ru.md),
-[перерисовка progress bar](LIVE_PROGRESS_TEST_REPORT.ru.md).
-
-Исправление режимов TTY: [повторная проверка progress bar](LIVE_PROGRESS_FOLLOWUP_TEST_REPORT.ru.md).
+Структурные проверки boot-служб и headless browser не подменяют эти сценарии.

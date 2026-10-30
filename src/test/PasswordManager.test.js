@@ -78,6 +78,17 @@ test('supports a local reset and returns a generated password once', async () =>
 
 test('enforces a practical password boundary', () => {
   assert.equal(validatePassword('twelve-chars'), 'twelve-chars');
-  assert.throws(() => validatePassword('short'), /between 12 and 128/);
-  assert.throws(() => validatePassword('valid-length\nbut-line'), /line breaks/);
+  assert.throws(() => validatePassword('short'), /от 12 до 128/);
+  assert.throws(() => validatePassword('valid-length\nbut-line'), /переводы строк/);
+  assert.equal(validatePassword('a'.repeat(72)).length, 72);
+  assert.equal(validatePassword('я'.repeat(36)).length, 36);
+  assert.throws(() => validatePassword('я'.repeat(37)), /72 байта/);
+  assert.throws(() => validatePassword('a'.repeat(72) + 'X'), /72 байта/);
+});
+
+test('старые длинные пароли можно проверить и заменить допустимым новым', async () => {
+  const { manager } = managerFixture();
+  manager.compare = async password => password === 'a'.repeat(80);
+  assert.equal(await manager.verify('a'.repeat(80)), true);
+  await manager.changePassword('a'.repeat(80), 'НовыйПароль1234');
 });

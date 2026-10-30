@@ -5,6 +5,7 @@ const { safeMessage } = require('./lib/SafeLog');
 
 const command = process.argv[2] ?? 'serve';
 const application = new Application({
+  onFatal: error => { console.error(safeMessage(error)); process.exit(1); },
   backendName: process.env.VPN_BACKEND ?? 'amneziawg',
   dualMode: process.env.VPN_DUAL_MODE === '1',
   controlEnabled: true,

@@ -3,6 +3,7 @@
 const crypto = require('node:crypto');
 
 const { allocateClientAddresses } = require('./AddressAllocator');
+const { buildClientArtifact } = require('./ClientArtifact');
 const { buildAwgArtifacts } = require('./AwgArtifacts');
 const { AwgKeyManager } = require('./AwgKeyManager');
 const { assertActiveHomeRemains, normalizeClientPolicy } = require('./ClientPolicy');
@@ -213,7 +214,7 @@ class ClientManager {
   async getClientExport(clientId) {
     const state = await this.requireState();
     if (!state.clients.some((client) => client.id === clientId)) throw new TypeError(`Unknown client: ${clientId}`);
-    return this.build(state).clientArtifacts[clientId];
+    return buildClientArtifact({ server: state.server, client: state.clients.find(client => client.id === clientId) });
   }
 }
 

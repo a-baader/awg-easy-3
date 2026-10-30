@@ -8,6 +8,10 @@ from vpnctl_terminal import message as terminal_message,ProgressLine
 
 
 class InstallationProgress:
+    title='Установка'
+    completion_message='Установка завершена'
+    failure_prefix='Установка не завершена'
+    compact_heartbeat=False
     def __init__(self,interval=10):
         self.line=ProgressLine();self.frame=0;self.finished=False;self.interval=interval;self.message='';self.started=time.monotonic()
         self.lock=threading.Lock();self.stopped=threading.Event();self.thread=None
@@ -21,13 +25,18 @@ class InstallationProgress:
     def stage(self,message):
         with self.lock:
             self.message=message;self.started=time.monotonic()
-            self.finished=message=='Установка завершена'
-            self.display('[Установка] '+message+' '+self.bar(),'error' if message.startswith('Установка не завершена') else 'success' if message=='Установка завершена' else 'label',file=sys.stderr,flush=True)
+            if self.completion_message is not None:self.finished=message==self.completion_message
+            style='error' if self.failure_prefix and message.startswith(self.failure_prefix) else 'success' if self.finished else 'label'
+            self.display('['+self.title+'] '+message+' '+self.bar(),style,file=sys.stderr,flush=True)
     def heartbeat(self):
         with self.lock:
-            if self.message:
-                elapsed=int(time.monotonic()-self.started)
-                self.display('[Установка] '+self.message+' — выполняется, прошло '+str(elapsed)+' с '+self.bar(),'label',file=sys.stderr,flush=True,transient=True)
+            if not self.message:return
+            elapsed=int(time.monotonic()-self.started)
+            suffix=' — прошло '+str(elapsed)+' с'
+            text='['+self.title+'] '+self.message
+            if self.compact_heartbeat:text+=' '+self.bar()+suffix
+            else:text+=' — выполняется, прошло '+str(elapsed)+' с '+self.bar()
+            self.display(text,'label',file=sys.stderr,flush=True,transient=True)
     def start(self):
         def repeat():
             while not self.stopped.wait(self.interval):self.heartbeat()
@@ -59,17 +68,9 @@ def installation_progress(method):
 
 
 class RemovalProgress(InstallationProgress):
-    def stage(self,message):
-        with self.lock:
-            self.message=message;self.started=time.monotonic()
-            style='error' if message.startswith('Удаление не завершено') else 'success' if message=='Удаление завершено' else 'label'
-            self.finished=message=='Удаление завершено'
-            self.display('[Удаление] '+message+' '+self.bar(),style,file=sys.stderr,flush=True)
-    def heartbeat(self):
-        with self.lock:
-            if self.message:
-                elapsed=int(time.monotonic()-self.started)
-                self.display('[Удаление] '+self.message+' — выполняется, прошло '+str(elapsed)+' с '+self.bar(),'label',file=sys.stderr,flush=True,transient=True)
+    title='Удаление'
+    completion_message='Удаление завершено'
+    failure_prefix='Удаление не завершено'
 
 
 def removal_progress(method):
@@ -93,18 +94,11 @@ def removal_progress(method):
 
 
 class CommandProgress(InstallationProgress):
+    completion_message=None
+    failure_prefix=None
+    compact_heartbeat=True
     def __init__(self,title,interval=10):
         super().__init__(interval);self.title=title
-    def stage(self,message):
-        with self.lock:
-            self.message=message;self.started=time.monotonic()
-            self.display('['+self.title+'] '+message+' '+self.bar(),
-                             'success' if self.finished else 'label',file=sys.stderr,flush=True)
-    def heartbeat(self):
-        with self.lock:
-            elapsed=int(time.monotonic()-self.started)
-            self.display('['+self.title+'] '+self.message+' '+self.bar()+' — прошло '+str(elapsed)+' с',
-                             'label',file=sys.stderr,flush=True,transient=True)
 
 
 @contextmanager

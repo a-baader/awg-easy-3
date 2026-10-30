@@ -142,8 +142,17 @@ async function request(host, portNumber, allow) {
   if (mode === 'discover-send') {
     const socket = dgram.createSocket('udp4');
     const tag = process.argv[3], udpPort = Number(process.argv[4]);
-    await new Promise((resolve, reject) => socket.bind(0, process.argv[5] || `10.${n}.0.2`, () => {
-      socket.send(Buffer.from('DUAL-TEST-' + tag), udpPort, `10.${n}.0.1`, error => error ? reject(error) : resolve());
+    const source = process.argv[5] || `10.${n}.0.2`;
+    const destination = process.argv[6] || (udpPort === 5353 ? '224.0.0.251' : '239.255.255.250');
+    await new Promise((resolve, reject) => socket.bind(0, source, () => {
+      if (destination.startsWith('224.') || destination.startsWith('239.')) socket.setMulticastInterface(source);
+      const marker = 'DUAL-TEST-' + tag;
+      const header = Buffer.alloc(12); header.writeUInt16BE(1, 4);
+      const question = Buffer.from(marker + '.local');
+      const payload = udpPort === 5353
+        ? Buffer.concat([header, Buffer.from([question.length]), question, Buffer.from([0, 0, 12, 0, 1])])
+        : Buffer.from('M-SEARCH * HTTP/1.1\r\nHOST: 239.255.255.250:1900\r\nST: ' + marker + '\r\n\r\n');
+      socket.send(payload, udpPort, destination, error => error ? reject(error) : resolve());
     }));
     socket.close(); return;
   }

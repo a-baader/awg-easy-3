@@ -154,7 +154,7 @@ const renderNftablesPolicy = ({
     ip daddr ${subnet4} iifname != ${quote(awg)} iifname != "lo" drop comment "deny foreign access to VPN host"
     iifname ${quote(awg)} ip saddr @home4 ip daddr ${serverAddress4} tcp dport ${port} accept comment "own Home panel"
     iifname ${quote(awg)} ip saddr @home4 ip daddr ${serverAddress4} icmp type echo-request accept comment "own Home diagnostics"
-    iifname ${quote(awg)} ip saddr @home4 ip daddr { ${serverAddress4}, 224.0.0.251, 239.255.255.250 } udp dport { 5353, 1900 } accept comment "own Home discovery"${subnet6 ? `
+    iifname ${quote(awg)} ip saddr @home4 ip daddr ${serverAddress4} udp dport { 5353, 1900 } accept comment "own Home discovery"${subnet6 ? `
     ip6 daddr ${subnet6} iifname != ${quote(awg)} iifname != "lo" drop comment "deny foreign IPv6 access to VPN host"
     iifname ${quote(awg)} ip6 saddr @home6 ip6 daddr ${serverAddress6} tcp dport ${port} accept comment "own Home IPv6 panel"
     iifname ${quote(awg)} ip6 saddr @home6 ip6 daddr ${serverAddress6} icmpv6 type echo-request accept comment "own Home IPv6 diagnostics"` : ''}
@@ -190,6 +190,8 @@ ${ipv6Sets}${geo.sets}${isolation ? `
   chain client_permissions {
     iifname ${quote(awg)} ip saddr != @active4 drop comment "IPv4 permission: from VPN client"
     oifname ${quote(awg)} ip daddr != @active4 drop comment "IPv4 permission: to VPN client"${ipv6PermissionRules}${isolation ? `
+    iifname ${quote(awg)} ip saddr @home4 ip daddr ${serverAddress4} udp dport 5353 ct status dnat ct original ip daddr 224.0.0.251 ct original proto-dst 5353 return comment "Разрешён собственный Home mDNS после DNAT"
+    iifname ${quote(awg)} ip saddr @home4 ip daddr ${serverAddress4} udp dport 1900 ct status dnat ct original ip daddr 239.255.255.250 ct original proto-dst 1900 return comment "Разрешён собственный Home SSDP после DNAT"
     iifname ${quote(awg)} ct status dnat drop comment "Запрет доступа VPN через DNAT"` : ''}
   }
 

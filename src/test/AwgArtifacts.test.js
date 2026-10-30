@@ -5,7 +5,7 @@ const test = require('node:test');
 
 const { buildAwgArtifacts } = require('../lib/AwgArtifacts');
 const { generateOfficialProfile } = require('../lib/Awg3Config');
-const { decodeVpnLink } = require('../lib/AmneziaVpnLink');
+const { decodeVpnLink } = require('./helpers/decode-vpn-link');
 
 const fixture = () => ({
   server: {

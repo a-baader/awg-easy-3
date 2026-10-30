@@ -4,7 +4,7 @@ const assert = require('node:assert/strict');
 const test = require('node:test');
 
 const { Application } = require('../lib/Application');
-const { decodeVpnLink } = require('../lib/AmneziaVpnLink');
+const { decodeVpnLink } = require('./helpers/decode-vpn-link');
 const { generateOfficialProfile } = require('../lib/Awg3Config');
 const { validateState } = require('../lib/StateStore');
 

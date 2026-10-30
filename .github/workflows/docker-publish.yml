@@ -14,6 +14,7 @@ env:
 
 jobs:
   build-and-push:
+    concurrency: release-${{ github.ref }}-${{ matrix.backend }}
     if: github.event_name == 'workflow_dispatch' && inputs.publish == true
     strategy:
       matrix:
@@ -25,22 +26,30 @@ jobs:
       contents: read
       actions: read
       packages: write
+      id-token: write
+      attestations: write
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
-          node-version: 22.18.0
+          node-version: 22.23.4
 
-      - name: Проверить успешный CI для точного commit
+      - name: Найти успешный полный CI для точного commit
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          set -eu
-          passed=$(gh run list --repo "$GITHUB_REPOSITORY" --commit "$GITHUB_SHA" --workflow test.yml --limit 100 --json conclusion --jq '[.[] | select(.conclusion == "success")] | length')
-          test "$passed" -gt 0
+          set -euo pipefail
+          run_id=$(gh run list --repo "$GITHUB_REPOSITORY" --commit "$GITHUB_SHA" --workflow test.yml --status success --limit 100 --json databaseId --jq '.[0].databaseId')
+          test -n "$run_id" && test "$run_id" != null
+          echo "CI_RUN_ID=$run_id" >> "$GITHUB_ENV"
+          if gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo 'Ошибка: релиз уже существует; повторная публикация запрещена' >&2
+            exit 1
+          fi
+          gh run download "$run_id" --repo "$GITHUB_REPOSITORY" --name tested-images --dir tested-images
 
       - name: Verify release metadata
         id: release
@@ -75,62 +84,46 @@ jobs:
           sh -n ../lib/auto-update.sh
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
 
       - name: Log in to GitHub Container Registry
-        uses: docker/login-action@v3
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Extract metadata (tags, labels)
-        id: meta
-        uses: docker/metadata-action@v5
-        with:
-          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
-          flavor: latest=false
-          tags: |
-            type=semver,pattern={{version}}
-            type=raw,value=latest,enable=${{ steps.release.outputs.is_stable == 'true' }}
-
-      - name: Build and push Docker image
+      - name: Опубликовать проверенный образ без пересборки
         id: published
-        uses: docker/build-push-action@v5
-        with:
-          context: .
-          platforms: linux/amd64
-          target: ${{ matrix.backend }}
-          push: true
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-
-      - name: Сохранить digest образа
-        env:
-          IMAGE_DIGEST: ${{ steps.published.outputs.digest }}
-          IMAGE_BACKEND: ${{ matrix.backend }}
         run: |
-          python3 - <<'PYCODE'
-          import json,os
-          from pathlib import Path
-          Path('image-digest.json').write_text(json.dumps({'backend':os.environ['IMAGE_BACKEND'],'digest':os.environ['IMAGE_DIGEST']})+'\n')
-          PYCODE
-      - uses: actions/upload-artifact@v4
+          python3 scripts/release-tested-images.py publish --directory tested-images \
+            --commit "$GITHUB_SHA" --repository "$GITHUB_REPOSITORY" \
+            --backend '${{ matrix.backend }}' --version "$(cat VERSION)" --output image-digest.json
+      - name: Подписать provenance опубликованного digest
+        uses: actions/attest-build-provenance@977bb373ede98d70efdf65b84cb5f73e068dcc2a # v3
+        with:
+          subject-name: ghcr.io/${{ env.IMAGE_NAME }}
+          subject-digest: ${{ steps.published.outputs.digest }}
+          push-to-registry: true
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: image-digest-${{ matrix.backend }}
           path: image-digest.json
 
   release:
+    concurrency: release-final-${{ github.ref }}
     needs: build-and-push
     if: github.event_name == 'workflow_dispatch' && inputs.publish == true && startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     permissions:
       contents: write
+      packages: write
+      statuses: write
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/download-artifact@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           pattern: image-digest-*
           path: image-digests
@@ -151,18 +144,31 @@ jobs:
             *-rc.*) prerelease=true ;;
             *) prerelease=false ;;
           esac
-          if existing=$(gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --json isPrerelease --jq .isPrerelease 2>/dev/null); then
-            test "$existing" = "$prerelease"
-          elif [ "$prerelease" = true ]; then
-            gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" \
-              --verify-tag --prerelease --latest=false \
-              --title "wg-dual-easy $GITHUB_REF_NAME — предварительный выпуск" \
-              --notes-file release-assets/notes.md
-          else
-            gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" \
-              --verify-tag --latest \
-              --title "wg-dual-easy $GITHUB_REF_NAME" \
-              --notes-file release-assets/notes.md
-          fi
+          gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" \
+            --verify-tag --draft --title "wg-dual-easy $GITHUB_REF_NAME" --notes-file release-assets/notes.md
           gh release upload "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" \
-            release-assets/release-manifest.json release-assets/install-command.txt release-assets/TEST_REPORT.ru.md release-assets/SHA256SUMS --clobber
+            release-assets/release-manifest.json release-assets/install-command.txt release-assets/TEST_REPORT.ru.md release-assets/SHA256SUMS
+          gh release edit "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --draft=false --prerelease="$prerelease" --latest="$([ "$prerelease" = false ] && echo true || echo false)"
+      - name: Обновить latest только после публикации полного stable-релиза
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          case "$GITHUB_REF_NAME" in *-rc.*) exit 0 ;; esac
+          echo "$GH_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+          python3 - <<'PYCODE'
+          import json,subprocess
+          from pathlib import Path
+          for name,reference in json.loads(Path('release-assets/release-manifest.json').read_text())['images'].items():
+              subprocess.run(['docker','pull',reference],check=True)
+              latest=reference.split('@')[0]+':latest'
+              subprocess.run(['docker','tag',reference,latest],check=True)
+              subprocess.run(['docker','push',latest],check=True)
+          PYCODE
+      - name: Продвинуть master только после готовности stable-релиза
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          case "$GITHUB_REF_NAME" in *-rc.*) exit 0 ;; esac
+          python3 scripts/promote-stable-release.py --repository "$GITHUB_REPOSITORY" \
+            --version "$(cat VERSION)" --commit "$GITHUB_SHA"

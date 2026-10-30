@@ -1,0 +1,24 @@
+services:
+  awg-easy:
+    image: ${AWG_IMAGE:-ghcr.io/alexsemenovru/awg-easy-3:0.1.6}
+    container_name: awg-easy-3
+    restart: unless-stopped
+    network_mode: host
+    cap_add:
+      - NET_ADMIN
+    devices:
+      - /dev/net/tun:/dev/net/tun
+    volumes:
+      - ./data:/data
+    read_only: true
+    tmpfs:
+      - /run:mode=0700,size=16m
+      - /tmp:mode=1777,size=32m
+    security_opt:
+      - no-new-privileges:true
+    environment:
+      AWG_HOST: ${AWG_HOST:-}
+      AWG_PORT: ${AWG_PORT:-51820}
+      AWG_PANEL_PORT: ${AWG_PANEL_PORT:-51821}
+      AWG_LANG: ${AWG_LANG:-en}
+    stop_grace_period: 15s

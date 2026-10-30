@@ -46,5 +46,9 @@ accordance with those package licenses as well as the licenses listed above.
 
 В образ WG копируются оригинальные LICENSE/COPYING. Протокол и исходники этих
 компонентов не изменяются. Их точные исходники доступны по указанным commit.
+Для обоих Go-движков при сборке применяются обновлённые `go.mod`/`go.sum` из
+`scripts/engine-dependencies`: закреплённые версии и контрольные суммы
+security-зависимостей. Поэтому бинарные файлы не заявляются как побайтовая
+сборка неизменённых upstream lock-файлов. Компилятор — Go 1.27.3.
 Изменения wg-dual-easy основаны на alexsemenovru/awg-easy-3 v0.1.6;
 атрибуция исходного проекта и условия CC BY-NC-SA 4.0 сохраняются.

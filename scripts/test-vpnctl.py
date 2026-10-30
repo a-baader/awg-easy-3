@@ -30,6 +30,7 @@ def config(root):
     return {'config_version':1,'version':'0.1.6','language':'ru','project':str(PROJECT),'components':components}
 
 class FakeManager(Manager):
+    def install_sources(self):return self.project
     def __init__(self,root):
         super().__init__(PROJECT,root/'manager/config.json',runner=self.fake,system_root=root/'system')
         self.calls=[];self.busy=set();self.fail_image=None
@@ -207,7 +208,7 @@ class Checks(unittest.TestCase):
         def fail_second(path,*args,**kwargs):
             if Path(path)==files[1]:raise OSError('Искусственный отказ записи системного файла')
             return atomic_write(path,*args,**kwargs)
-        with mock.patch('vpnctl_manager.atomic_write',side_effect=fail_second):
+        with mock.patch('vpnctl_system.atomic_write',side_effect=fail_second):
             with self.assertRaises(OSError):self.manager.register(cfg)
         self.assertTrue(files[0].exists());self.assertFalse(files[1].exists())
         self.manager.cleanup_created=lambda item:None

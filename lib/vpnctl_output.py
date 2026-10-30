@@ -8,6 +8,13 @@ from vpnctl_terminal import paint
 from vpnctl_common import ManagerError,atomic_json
 
 LABELS={
+    'items':'Ресурсы хранения','kind':'Тип','bytes':'Размер, байт','age_days':'Возраст, дней',
+    'total_bytes':'Общий размер, байт','free_bytes':'Свободно, байт','warnings':'Предупреждения',
+    'owned':'Принадлежность подтверждена','protected':'Защищён от удаления','path':'Путь',
+    'reclaimed_bytes':'Освобождено, байт','active_sources_preserved':'Активные исходники сохранены','automatic_cleanup':'Автоматическая очистка',
+    'cli_version':'Версия CLI',
+    'backup_images_trusted':'Образы backup явно доверены','image_execution_skipped':'Запуск образов пропущен',
+    'device':'Файловая система','inode':'Идентификатор файла','mtime':'Время изменения',
     'installed':'Установлено','unchanged':'Без изменений','components':'Сервисы','version':'Версия',
     'container':'Контейнер','running':'Запущен','health':'Готовность','image':'Образ','image_ref':'Ссылка на образ',
     'interface':'Интерфейс','panel_url':'Адрес панели','recovery_required':'Требуется восстановление',
@@ -29,6 +36,7 @@ LABELS={
     'installed_command_removal_requested':'Запрошено удаление установленного vpnctl',
 }
 COMMANDS={'install':'Установка','reinstall':'Переустановка','status':'Состояние сервисов',
+          'storage':'Хранение backup и кешей',
           'start':'Запуск','stop':'Остановка','restart':'Перезапуск','settings':'Настройки',
           'logs':'Журналы','diagnose':'Диагностика','update':'Обновление','backup':'Резервная копия',
           'restore':'Восстановление','uninstall':'Удаление','purge':'Полное удаление',

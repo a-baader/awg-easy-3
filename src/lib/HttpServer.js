@@ -98,12 +98,12 @@ class HttpServer {
       if (request.method === 'GET') return sendJson(response, 200, await this.api.session(token));
       if (request.method === 'POST') {
         const body = await readJson(request);
-        const result = await this.api.login(body.password);
+        const result = await this.api.login(body.password, { remoteAddress: request.socket.remoteAddress });
         response.setHeader('Set-Cookie', result.cookie);
         return sendJson(response, 200, { authenticated: true });
       }
       if (request.method === 'DELETE') {
-        const result = this.api.logout();
+        const result = await this.api.logout(token);
         response.setHeader('Set-Cookie', result.cookie);
         return sendJson(response, 200, { success: true });
       }
@@ -210,6 +210,9 @@ class HttpServer {
       securityHeaders(response, { api: true });
       const statusCode = error.statusCode
         ?? (error instanceof TypeError || error instanceof RangeError ? 400 : 500);
+      if (statusCode === 429 && Number.isSafeInteger(error.retryAfter) && error.retryAfter > 0) {
+        response.setHeader('Retry-After', String(error.retryAfter));
+      }
       return sendJson(response, statusCode, {
         error: statusCode === 500 ? 'Internal server error' : error.message,
           ...(statusCode !== 500 && ['CURRENT_PANEL_PATH', 'LAST_HOME', 'IPV6_UNAVAILABLE', 'GEO_UNAVAILABLE', 'MAINTENANCE'].includes(error.code)
